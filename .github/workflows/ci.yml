@@ -11,12 +11,7 @@ jobs:
     outputs:
       drizzle_changed: ${{ steps.changes.outputs.changed }}
     env:
-      DIRECT_URL: ${{ secrets.NEON_DIRECT_URL }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # full history required for git diff $BEFORE..$SHA across multi-commit pushes
-          fetch-depth: 0
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
 
       - name: Detect drizzle/ changes
         id: changes
@@ -59,11 +54,7 @@ jobs:
       group: neon-migrate
       cancel-in-progress: false
     env:
-      DIRECT_URL: ${{ secrets.NEON_DIRECT_URL }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
         with:
           version: 10.33.0
 

@@ -56,7 +56,7 @@ dotenv-cli（`.env.local` 参照）を使わない CI 専用スクリプトを `
 
 ### GitHub Secret
 
-`NEON_DIRECT_URL`（Neon direct / unpooled 接続 URL）を GitHub Secrets に登録する。
+`DIRECT_URL`（Neon direct / unpooled 接続 URL）を GitHub Secrets に登録する。
 ワークフロー内で `DIRECT_URL` 環境変数にマッピングし、`drizzle.config.ts` が参照する。
 
 ### 変更検出
@@ -69,10 +69,10 @@ dotenv-cli（`.env.local` 参照）を使わない CI 専用スクリプトを `
 
 - master push 後、`drizzle/` に変更があれば Neon 本番 DB に自動適用される。
   消費プロジェクトの deploy 前に migration が完了している状態を保つ。
-- `NEON_DIRECT_URL` が未設定の場合は CI が失敗する（意図した動作）。
+- `DIRECT_URL` が未設定の場合は CI が失敗する（意図した動作）。
 - migration を手動で実行する場合は `DIRECT_URL=... pnpm db:migrate` を引き続き使える。
 - `drizzle-kit check` は `drizzle.config.ts` ロード時に `DIRECT_URL` が必要なため、
-  CI job でも `NEON_DIRECT_URL` secret が必要となる。
+  CI job でも `DIRECT_URL` secret が必要となる。
 
 ## Alternatives considered
 

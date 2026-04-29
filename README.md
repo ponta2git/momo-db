@@ -15,14 +15,14 @@ master push 時に GitHub Actions が自動実行される。
 
 ### GitHub Secret の設定
 
-`NEON_DIRECT_URL` を GitHub リポジトリの Secret として登録する必要がある。
+`DIRECT_URL` を GitHub リポジトリの Secret として登録する必要がある。
 
 1. [Neon Console](https://console.neon.tech) を開く
 2. 対象プロジェクト → **Connection Details** → **Direct connection**（Unpooled）をコピー
 3. GitHub リポジトリ → **Settings → Secrets and variables → Actions → New repository secret**
-4. Name: `NEON_DIRECT_URL`、Value: 手順2でコピーした接続文字列を貼り付けて保存
+4. Name: `DIRECT_URL`、Value: 手順2でコピーした接続文字列を貼り付けて保存
 
-> **重要**: `NEON_DIRECT_URL` が未設定の状態で push すると CI が失敗する。
+> **重要**: `DIRECT_URL` が未設定の状態で push すると CI が失敗する。
 > 先に Secret を登録してから push すること。
 
 ## セットアップ
