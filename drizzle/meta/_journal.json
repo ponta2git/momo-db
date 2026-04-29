@@ -64,6 +64,13 @@
       "when": 1777505665643,
       "tag": "0008_foamy_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777600000000,
+      "tag": "0009_seed_members",
+      "breakpoints": true
     }
   ]
 }
