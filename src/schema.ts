@@ -1,4 +1,5 @@
 import {
+  boolean,
   check,
   date,
   index,
@@ -21,6 +22,26 @@ export const members = pgTable("members", {
     .notNull()
     .defaultNow()
 });
+
+export const appSessions = pgTable(
+  "app_sessions",
+  {
+    id: text("id").primaryKey(),
+    memberId: text("member_id").notNull(),
+    csrfSecret: text("csrf_secret").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
+  },
+  (table) => [
+    index("app_sessions_member_id_idx").on(table.memberId),
+    index("app_sessions_expires_at_idx").on(table.expiresAt)
+  ]
+);
 
 export const SESSION_STATUSES = [
   "ASKING",
@@ -166,6 +187,80 @@ export const heldEventParticipants = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.heldEventId, table.memberId] })
+  ]
+);
+
+export const ocrDrafts = pgTable(
+  "ocr_drafts",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id").notNull(),
+    requestedScreenType: text("requested_screen_type").notNull(),
+    detectedScreenType: text("detected_screen_type"),
+    profileId: text("profile_id"),
+    payloadJson: jsonb("payload_json")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    warningsJson: jsonb("warnings_json")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    timingsMsJson: jsonb("timings_ms_json")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("ocr_drafts_job_id_unique").on(table.jobId),
+    check(
+      "ocr_drafts_payload_json_object_check",
+      sql`jsonb_typeof(${table.payloadJson}) = 'object'`
+    ),
+    check(
+      "ocr_drafts_warnings_json_array_check",
+      sql`jsonb_typeof(${table.warningsJson}) = 'array'`
+    ),
+    check(
+      "ocr_drafts_timings_ms_json_object_check",
+      sql`jsonb_typeof(${table.timingsMsJson}) = 'object'`
+    )
+  ]
+);
+
+export const ocrJobs = pgTable(
+  "ocr_jobs",
+  {
+    id: text("id").primaryKey(),
+    draftId: text("draft_id").notNull(),
+    imageId: text("image_id").notNull(),
+    imagePath: text("image_path").notNull(),
+    requestedScreenType: text("requested_screen_type").notNull(),
+    detectedScreenType: text("detected_screen_type"),
+    status: text("status").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    workerId: text("worker_id"),
+    failureCode: text("failure_code"),
+    failureMessage: text("failure_message"),
+    failureRetryable: boolean("failure_retryable"),
+    failureUserAction: text("failure_user_action"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("ocr_jobs_draft_id_unique").on(table.draftId),
+    index("ocr_jobs_status_created_at_idx").on(table.status, table.createdAt),
+    index("ocr_jobs_image_id_idx").on(table.imageId)
   ]
 );
 
