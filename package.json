@@ -9,6 +9,9 @@
       "import": "./dist/schema.js"
     }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "db:up": "docker compose up -d postgres",
@@ -36,6 +39,7 @@
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-zod": "^0.8.3",
+    "postgres": "3.4.9",
     "typescript": "^6.0.3"
   }
 }

@@ -10,7 +10,7 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2
+        version: 0.45.2(postgres@3.4.9)
     devDependencies:
       '@types/node':
         specifier: ^24.12.2
@@ -23,7 +23,10 @@ importers:
         version: 0.31.10
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.2)(zod@4.3.6)
+        version: 0.8.3(drizzle-orm@0.45.2(postgres@3.4.9))(zod@4.3.6)
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -646,6 +649,10 @@ packages:
     resolution: {integrity: sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==}
     engines: {node: '>=8'}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
@@ -955,11 +962,13 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2: {}
+  drizzle-orm@0.45.2(postgres@3.4.9):
+    optionalDependencies:
+      postgres: 3.4.9
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.2)(zod@4.3.6):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.2(postgres@3.4.9))(zod@4.3.6):
     dependencies:
-      drizzle-orm: 0.45.2
+      drizzle-orm: 0.45.2(postgres@3.4.9)
       zod: 4.3.6
 
   esbuild@0.18.20:
@@ -1057,6 +1066,8 @@ snapshots:
   minimist@1.2.8: {}
 
   path-key@3.1.1: {}
+
+  postgres@3.4.9: {}
 
   resolve-pkg-maps@1.0.0: {}
 
