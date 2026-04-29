@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       drizzle_changed: ${{ steps.changes.outputs.changed }}
+    environment: CI Actions
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
     steps:
@@ -58,6 +59,7 @@ jobs:
     concurrency:
       group: neon-migrate
       cancel-in-progress: false
+    environment: CI Actions
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
     steps:
