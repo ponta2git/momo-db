@@ -86,11 +86,6 @@ DIRECT_URL=postgres://... pnpm db:migrate
 
 > **重要**: スキーマ変更を伴う消費プロジェクトの deploy 前に必ず適用すること。
 
-## 利用プロジェクト
-
-- **summit**: `"@momo/db": "file:../momo-db"` でローカル依存として参照
-- **momo-result**: 同様に `file:../momo-db` で参照（予定）
-
 ## 環境変数
 
 | 変数 | 用途 |
