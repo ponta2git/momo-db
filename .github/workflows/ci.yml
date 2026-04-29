@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  ci:
+    name: Build & Check
+    runs-on: ubuntu-latest
+    outputs:
+      drizzle_changed: ${{ steps.changes.outputs.changed }}
+    env:
+      DIRECT_URL: ${{ secrets.NEON_DIRECT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history required for git diff $BEFORE..$SHA across multi-commit pushes
+          fetch-depth: 0
+
+      - name: Detect drizzle/ changes
+        id: changes
+        run: |
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          # First push to this branch has no previous commit (all-zeros SHA)
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          elif git diff --name-only "$BEFORE" "$AFTER" -- drizzle/ | grep -q .; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: TypeScript build
+        run: pnpm build
+
+      - name: drizzle-kit check
+        run: pnpm db:check:ci
+
+  migrate:
+    name: Migrate Neon
+    needs: ci
+    if: needs.ci.outputs.drizzle_changed == 'true'
+    runs-on: ubuntu-latest
+    # Serialize migrations: never cancel in-progress to avoid partial schema state
+    concurrency:
+      group: neon-migrate
+      cancel-in-progress: false
+    env:
+      DIRECT_URL: ${{ secrets.NEON_DIRECT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run migration
+        run: pnpm db:migrate:ci
