@@ -156,12 +156,14 @@ export const responses = pgTable(
 //   永続不整合を回避する (COMPLETED は終端のため起動時リカバリが拾わない)。
 export const heldEvents = pgTable("held_events", {
   id: text("id").primaryKey(),
-  // unique: 1 Session につき 1 HeldEvent。CAS 勝者のみ挿入するが onConflictDoNothing の anchor として必要。
+  // why: summit の Discord 出席 session に紐づく held_event は session_id を持つ。
+  //   momo-result が単独で作成した ad-hoc 開催履歴は session_id NULL になる。
+  // unique: NULL 以外は 1 Session につき 1 HeldEvent。
+  //   summit の DECIDED→COMPLETED CAS との onConflictDoNothing anchor として必要。
   sessionId: text("session_id")
-    .notNull()
     .unique()
     .references(() => sessions.id, { onDelete: "cascade" }),
-  // why: `Iso` suffix で文字列日付型を明示 (ADR-0014)。値は session.candidate_date_iso に一致。
+  // why: `Iso` suffix で文字列日付型を明示 (ADR-0014)。summit 作成時は session.candidate_date_iso と一致。
   heldDateIso: date("held_date_iso", { mode: "string" }).notNull(),
   startAt: timestamp("start_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -332,5 +334,233 @@ export const discordOutbox = pgTable(
       table.status,
       table.nextAttemptAt
     )
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// momo-result: 桃鉄 1 年勝負の結果記録 (matches / players / incidents) と
+//   関連マスタ (game_titles / map_masters / season_masters / incident_masters /
+//   member_aliases)。要件は momo-result/requirements/base.md を参照。
+// ---------------------------------------------------------------------------
+
+// source-of-truth: 作品 (例: 桃太郎電鉄2、桃太郎電鉄ワールド、桃太郎電鉄〜昭和 平成 令和も定番〜)。
+//   layout_family は OCR プロファイル (apps/ocr-worker/src/momo_ocr_worker/profiles) と整合。
+export const gameTitles = pgTable(
+  "game_titles",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    // why: OCR profile family と一致させる識別子。例: "momotetsu_2", "world", "reiwa"。
+    layoutFamily: text("layout_family").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [uniqueIndex("game_titles_name_unique").on(table.name)]
+);
+
+// source-of-truth: マップ。作品ごとに別マップを持つため (gameTitleId, name) で unique。
+export const mapMasters = pgTable(
+  "map_masters",
+  {
+    id: text("id").primaryKey(),
+    gameTitleId: text("game_title_id")
+      .notNull()
+      .references(() => gameTitles.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("map_masters_title_name_unique").on(
+      table.gameTitleId,
+      table.name
+    )
+  ]
+);
+
+// source-of-truth: シーズン (作品内の年度・キャンペーン区分)。
+export const seasonMasters = pgTable(
+  "season_masters",
+  {
+    id: text("id").primaryKey(),
+    gameTitleId: text("game_title_id")
+      .notNull()
+      .references(() => gameTitles.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("season_masters_title_name_unique").on(
+      table.gameTitleId,
+      table.name
+    )
+  ]
+);
+
+// source-of-truth: 桃鉄事件名マスタ。
+//   MVP では 6 項目固定 (目的地 / プラス駅 / マイナス駅 / カード駅 / カード売り場 / スリの銀次)。
+//   key は安定したスネークケース識別子。display_name は日本語表示。
+export const incidentMasters = pgTable(
+  "incident_masters",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    displayName: text("display_name").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [uniqueIndex("incident_masters_key_unique").on(table.key)]
+);
+
+// source-of-truth: OCR で読み取ったプレーヤー名と members の対応辞書。
+//   1 member に複数 alias を許容する。
+export const memberAliases = pgTable(
+  "member_aliases",
+  {
+    id: text("id").primaryKey(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    alias: text("alias").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("member_aliases_member_alias_unique").on(
+      table.memberId,
+      table.alias
+    ),
+    index("member_aliases_alias_idx").on(table.alias)
+  ]
+);
+
+// source-of-truth: 確定済み試合 (1 試合 = 1 行)。
+//   開催履歴 (held_events) 内で match_no_in_event の 1-origin 連番。
+export const matches = pgTable(
+  "matches",
+  {
+    id: text("id").primaryKey(),
+    heldEventId: text("held_event_id")
+      .notNull()
+      .references(() => heldEvents.id, { onDelete: "restrict" }),
+    matchNoInEvent: integer("match_no_in_event").notNull(),
+    gameTitleId: text("game_title_id")
+      .notNull()
+      .references(() => gameTitles.id, { onDelete: "restrict" }),
+    // why: gameTitles.layoutFamily の冗長コピー。OCR profile family を結果に固定するため。
+    //   作品名変更時にも過去結果の解析プロファイルが追跡できる。
+    layoutFamily: text("layout_family").notNull(),
+    seasonMasterId: text("season_master_id")
+      .notNull()
+      .references(() => seasonMasters.id, { onDelete: "restrict" }),
+    ownerMemberId: text("owner_member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "restrict" }),
+    mapMasterId: text("map_master_id")
+      .notNull()
+      .references(() => mapMasters.id, { onDelete: "restrict" }),
+    playedAt: timestamp("played_at", { withTimezone: true }).notNull(),
+    // why: 確定時点で参照した OCR draft の id を文字列として保持する。
+    //   ocr_drafts は将来クリーンアップで削除される可能性があるため FK は張らない (履歴メモ)。
+    totalAssetsDraftId: text("total_assets_draft_id"),
+    revenueDraftId: text("revenue_draft_id"),
+    incidentLogDraftId: text("incident_log_draft_id"),
+    createdByMemberId: text("created_by_member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("matches_event_match_no_unique").on(
+      table.heldEventId,
+      table.matchNoInEvent
+    ),
+    check(
+      "matches_match_no_in_event_check",
+      sql`${table.matchNoInEvent} >= 1`
+    ),
+    index("matches_held_event_id_idx").on(table.heldEventId),
+    index("matches_played_at_idx").on(table.playedAt)
+  ]
+);
+
+// source-of-truth: 試合 1 行 × 4 プレイヤーの結果。
+//   業務ルール (base.md §5.2): play_order と rank はそれぞれ {1,2,3,4} のユニーク。
+//   金額は万円単位の整数。借金で負になり得るため値域チェックは行わない。
+export const matchPlayers = pgTable(
+  "match_players",
+  {
+    matchId: text("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "restrict" }),
+    playOrder: integer("play_order").notNull(),
+    rank: integer("rank").notNull(),
+    totalAssetsManYen: integer("total_assets_man_yen").notNull(),
+    revenueManYen: integer("revenue_man_yen").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    primaryKey({ columns: [table.matchId, table.memberId] }),
+    uniqueIndex("match_players_match_play_order_unique").on(
+      table.matchId,
+      table.playOrder
+    ),
+    uniqueIndex("match_players_match_rank_unique").on(
+      table.matchId,
+      table.rank
+    ),
+    check(
+      "match_players_play_order_check",
+      sql`${table.playOrder} BETWEEN 1 AND 4`
+    ),
+    check("match_players_rank_check", sql`${table.rank} BETWEEN 1 AND 4`)
+  ]
+);
+
+// source-of-truth: 試合 × プレイヤー × 事件項目の発生回数。
+//   MVP では incident_masters の 6 項目固定だが、将来項目追加に備えて専用テーブルにする。
+export const matchIncidents = pgTable(
+  "match_incidents",
+  {
+    matchId: text("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "restrict" }),
+    incidentMasterId: text("incident_master_id")
+      .notNull()
+      .references(() => incidentMasters.id, { onDelete: "restrict" }),
+    count: integer("count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.matchId, table.memberId, table.incidentMasterId]
+    }),
+    check("match_incidents_count_check", sql`${table.count} >= 0`),
+    index("match_incidents_match_id_idx").on(table.matchId)
   ]
 );
