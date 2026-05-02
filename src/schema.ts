@@ -444,6 +444,91 @@ export const memberAliases = pgTable(
   ]
 );
 
+export const MATCH_DRAFT_STATUSES = [
+  "ocr_running",
+  "ocr_failed",
+  "draft_ready",
+  "needs_review",
+  "confirmed",
+  "cancelled"
+] as const;
+
+export type MatchDraftStatus = (typeof MATCH_DRAFT_STATUSES)[number];
+
+// source-of-truth: 確定前の試合作業単位。
+//   matches は確定済み専用のため、未入力許容の作業状態は match_drafts に保持する。
+export const matchDrafts = pgTable(
+  "match_drafts",
+  {
+    id: text("id").primaryKey(),
+    createdByMemberId: text("created_by_member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "restrict" }),
+    status: text("status").notNull(),
+    heldEventId: text("held_event_id").references(() => heldEvents.id, {
+      onDelete: "restrict"
+    }),
+    matchNoInEvent: integer("match_no_in_event"),
+    gameTitleId: text("game_title_id").references(() => gameTitles.id, {
+      onDelete: "restrict"
+    }),
+    // why: gameTitles.layoutFamily の冗長コピー。下書き時点の OCR profile family を固定する。
+    layoutFamily: text("layout_family"),
+    seasonMasterId: text("season_master_id").references(() => seasonMasters.id, {
+      onDelete: "restrict"
+    }),
+    ownerMemberId: text("owner_member_id").references(() => members.id, {
+      onDelete: "restrict"
+    }),
+    mapMasterId: text("map_master_id").references(() => mapMasters.id, {
+      onDelete: "restrict"
+    }),
+    playedAt: timestamp("played_at", { withTimezone: true }),
+    // why: image store の opaque id。内部 path/bucket は保持しない。
+    totalAssetsImageId: text("total_assets_image_id"),
+    revenueImageId: text("revenue_image_id"),
+    incidentLogImageId: text("incident_log_image_id"),
+    // why: 確定前に参照する OCR draft id。ocr_drafts cleanup を許容するため FK は張らない。
+    totalAssetsDraftId: text("total_assets_draft_id"),
+    revenueDraftId: text("revenue_draft_id"),
+    incidentLogDraftId: text("incident_log_draft_id"),
+    sourceImagesRetainedUntil: timestamp("source_images_retained_until", {
+      withTimezone: true
+    }),
+    sourceImagesDeletedAt: timestamp("source_images_deleted_at", {
+      withTimezone: true
+    }),
+    confirmedMatchId: text("confirmed_match_id").references(() => matches.id, {
+      onDelete: "set null"
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "match_drafts_status_check",
+      sql`${table.status} IN ('ocr_running','ocr_failed','draft_ready','needs_review','confirmed','cancelled')`
+    ),
+    check(
+      "match_drafts_match_no_in_event_check",
+      sql`${table.matchNoInEvent} IS NULL OR ${table.matchNoInEvent} >= 1`
+    ),
+    index("match_drafts_status_updated_at_idx").on(table.status, table.updatedAt),
+    index("match_drafts_created_by_status_idx").on(
+      table.createdByMemberId,
+      table.status
+    ),
+    index("match_drafts_held_event_id_idx").on(table.heldEventId),
+    uniqueIndex("match_drafts_confirmed_match_id_unique").on(
+      table.confirmedMatchId
+    )
+  ]
+);
+
 // source-of-truth: 確定済み試合 (1 試合 = 1 行)。
 //   開催履歴 (held_events) 内で match_no_in_event の 1-origin 連番。
 export const matches = pgTable(
