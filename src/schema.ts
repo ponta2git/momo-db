@@ -300,6 +300,68 @@ export const ocrJobs = pgTable(
   ]
 );
 
+export const OCR_QUEUE_OUTBOX_STATUSES = [
+  "PENDING",
+  "IN_FLIGHT",
+  "DELIVERED",
+  "FAILED"
+] as const;
+export type OcrQueueOutboxStatus =
+  (typeof OCR_QUEUE_OUTBOX_STATUSES)[number];
+
+// source-of-truth: OCR Redis Streams enqueue intent の durable outbox。
+//   OCR job 作成 tx 内で enqueue intent を永続化し、commit 後 crash 時も再 publish できる。
+export const ocrQueueOutbox = pgTable(
+  "ocr_queue_outbox",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => ocrJobs.id),
+    // unique: 1 job 1 enqueue intent の決定論キー。通常は `ocr-job:${jobId}`。
+    dedupeKey: text("dedupe_key").notNull(),
+    // source-of-truth: Redis Stream に送る key/value payload を request 時点の値で保持する。
+    streamPayload: jsonb("stream_payload").notNull(),
+    status: text("status").notNull().default("PENDING"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    redisMessageId: text("redis_message_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "ocr_queue_outbox_stream_payload_object_check",
+      sql`jsonb_typeof(${table.streamPayload}) = 'object'`
+    ),
+    check(
+      "ocr_queue_outbox_status_check",
+      sql`${table.status} IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED')`
+    ),
+    check(
+      "ocr_queue_outbox_attempt_count_check",
+      sql`${table.attemptCount} >= 0`
+    ),
+    uniqueIndex("uq_ocr_queue_outbox_dedupe_active")
+      .on(table.dedupeKey)
+      .where(sql`status IN ('PENDING','IN_FLIGHT','DELIVERED')`),
+    index("idx_ocr_queue_outbox_status_next").on(
+      table.status,
+      table.nextAttemptAt
+    ),
+    index("idx_ocr_queue_outbox_job_id").on(table.jobId)
+  ]
+);
+
 // source-of-truth: Discord 送信の at-least-once 配送キュー。状態遷移 tx で enqueue し、
 //   worker が非同期配送。crash 中でも DB 正本のまま再試行される。 @see ADR-0035
 export const OUTBOX_KINDS = ["send_message", "edit_message"] as const;
