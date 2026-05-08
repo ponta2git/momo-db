@@ -1,6 +1,7 @@
 import {
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -13,6 +14,12 @@ import {
   varchar
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
+  dataType() {
+    return "bytea";
+  }
+});
 
 export const members = pgTable("members", {
   id: text("id").primaryKey(),
@@ -40,6 +47,33 @@ export const appSessions = pgTable(
   (table) => [
     index("app_sessions_member_id_idx").on(table.memberId),
     index("app_sessions_expires_at_idx").on(table.expiresAt)
+  ]
+);
+
+// source-of-truth: HTTP Idempotency-Key の処理結果キャッシュ。
+//   POST 再送時に同じ member/endpoint/key へ保存済みレスポンスを返し、副作用の二重発生を防ぐ。
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    key: text("key").notNull(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id),
+    endpoint: text("endpoint").notNull(),
+    requestHash: bytea("request_hash").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    responseHeaders: jsonb("response_headers")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    responseBody: bytea("response_body"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.key, table.memberId, table.endpoint] }),
+    index("idempotency_keys_expires_at_idx").on(table.expiresAt)
   ]
 );
 
