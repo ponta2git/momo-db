@@ -30,11 +30,39 @@ export const members = pgTable("members", {
     .defaultNow()
 });
 
+export const momoLoginAccounts = pgTable(
+  "momo_login_accounts",
+  {
+    id: text("id").primaryKey(),
+    discordUserId: text("discord_user_id").notNull().unique(),
+    displayName: varchar("display_name", { length: 64 }).notNull(),
+    playerMemberId: text("player_member_id").references(() => members.id, {
+      onDelete: "restrict"
+    }),
+    loginEnabled: boolean("login_enabled").notNull().default(true),
+    isAdmin: boolean("is_admin").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    index("momo_login_accounts_player_member_id_idx").on(table.playerMemberId),
+    index("momo_login_accounts_login_enabled_idx").on(table.loginEnabled),
+    index("momo_login_accounts_is_admin_idx").on(table.isAdmin)
+  ]
+);
+
 export const appSessions = pgTable(
   "app_sessions",
   {
     id: text("id").primaryKey(),
-    memberId: text("member_id").notNull(),
+    memberId: text("member_id"),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => momoLoginAccounts.id, { onDelete: "cascade" }),
     csrfSecret: text("csrf_secret").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -46,19 +74,21 @@ export const appSessions = pgTable(
   },
   (table) => [
     index("app_sessions_member_id_idx").on(table.memberId),
+    index("app_sessions_account_id_idx").on(table.accountId),
     index("app_sessions_expires_at_idx").on(table.expiresAt)
   ]
 );
 
 // source-of-truth: HTTP Idempotency-Key の処理結果キャッシュ。
-//   POST 再送時に同じ member/endpoint/key へ保存済みレスポンスを返し、副作用の二重発生を防ぐ。
+//   POST 再送時に同じ account/endpoint/key へ保存済みレスポンスを返し、副作用の二重発生を防ぐ。
 export const idempotencyKeys = pgTable(
   "idempotency_keys",
   {
     key: text("key").notNull(),
-    memberId: text("member_id")
+    memberId: text("member_id").references(() => members.id),
+    accountId: text("account_id")
       .notNull()
-      .references(() => members.id),
+      .references(() => momoLoginAccounts.id),
     endpoint: text("endpoint").notNull(),
     requestHash: bytea("request_hash").notNull(),
     responseStatus: integer("response_status").notNull(),
@@ -72,7 +102,7 @@ export const idempotencyKeys = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
   },
   (table) => [
-    primaryKey({ columns: [table.key, table.memberId, table.endpoint] }),
+    primaryKey({ columns: [table.key, table.accountId, table.endpoint] }),
     index("idempotency_keys_expires_at_idx").on(table.expiresAt)
   ]
 );
@@ -558,8 +588,10 @@ export const matchDrafts = pgTable(
   {
     id: text("id").primaryKey(),
     createdByMemberId: text("created_by_member_id")
-      .notNull()
       .references(() => members.id, { onDelete: "restrict" }),
+    createdByAccountId: text("created_by_account_id")
+      .notNull()
+      .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
     status: text("status").notNull(),
     heldEventId: text("held_event_id").references(() => heldEvents.id, {
       onDelete: "restrict"
@@ -618,6 +650,10 @@ export const matchDrafts = pgTable(
       table.createdByMemberId,
       table.status
     ),
+    index("match_drafts_created_by_account_status_idx").on(
+      table.createdByAccountId,
+      table.status
+    ),
     index("match_drafts_held_event_id_idx").on(table.heldEventId),
     uniqueIndex("match_drafts_confirmed_match_id_unique").on(
       table.confirmedMatchId
@@ -657,8 +693,10 @@ export const matches = pgTable(
     revenueDraftId: text("revenue_draft_id"),
     incidentLogDraftId: text("incident_log_draft_id"),
     createdByMemberId: text("created_by_member_id")
-      .notNull()
       .references(() => members.id, { onDelete: "restrict" }),
+    createdByAccountId: text("created_by_account_id")
+      .notNull()
+      .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -676,6 +714,7 @@ export const matches = pgTable(
       sql`${table.matchNoInEvent} >= 1`
     ),
     index("matches_held_event_id_idx").on(table.heldEventId),
+    index("matches_created_by_account_id_idx").on(table.createdByAccountId),
     index("matches_played_at_idx").on(table.playedAt)
   ]
 );
