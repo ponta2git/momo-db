@@ -58,12 +58,12 @@ export const momoLoginAccounts = pgTable(
 export const appSessions = pgTable(
   "app_sessions",
   {
-    id: text("id").primaryKey(),
+    idHash: text("id_hash").primaryKey(),
     memberId: text("member_id"),
     accountId: text("account_id")
       .notNull()
       .references(() => momoLoginAccounts.id, { onDelete: "cascade" }),
-    csrfSecret: text("csrf_secret").notNull(),
+    csrfSecretHash: text("csrf_secret_hash").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
