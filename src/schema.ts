@@ -103,6 +103,10 @@ export const idempotencyKeys = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.key, table.accountId, table.endpoint] }),
+    index("idempotency_keys_account_expires_at_idx").on(
+      table.accountId,
+      table.expiresAt
+    ),
     index("idempotency_keys_expires_at_idx").on(table.expiresAt)
   ]
 );
