@@ -58,8 +58,11 @@ pnpm db:migrate
 cd ../summit && pnpm db:seed
 ```
 
-> **Note**: `compose.yaml` は postgres 16 コンテナをポート 5433 で公開する。
+> **Note**: `compose.yaml` は postgres 18 コンテナをポート 5433 で公開する。
 > ローカルの `.env.local` には `DIRECT_URL=postgres://...@localhost:5433/...` を設定すること。
+> postgres 18 は `momo-db_summit_postgres_data_v18` ボリュームを使う。
+> postgres 18 公式イメージの推奨に合わせて、ボリュームは `/var/lib/postgresql` にマウントする。
+> 旧 postgres 16 用の `momo-db_summit_postgres_data` が不要になった場合は手動で削除する。
 
 ### summit のセットアップから一括実行する場合
 
