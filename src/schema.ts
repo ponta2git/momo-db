@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   check,
   customType,
@@ -6,11 +7,14 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
+  uuid,
   varchar
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -152,6 +156,8 @@ export const sessions = pgTable(
     cancelReason: text("cancel_reason"),
     reminderAt: timestamp("reminder_at", { withTimezone: true }),
     reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+    // optimistic sequence for aggregate mutations and ordered side-effect intents.
+    revision: bigint("revision", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -176,6 +182,7 @@ export const sessions = pgTable(
       "sessions_postpone_count_check",
       sql`${table.postponeCount} IN (0, 1)`
     ),
+    check("sessions_revision_check", sql`${table.revision} >= 0`),
     // why: findDueAskingSessions / findDuePostponeVotingSessions の `WHERE status IN (...) AND deadline_at <= now`
     //   を prefix/range scan で支援するため status を leading column に置いた composite index。
     index("idx_sessions_status_deadline").on(table.status, table.deadlineAt),
@@ -202,11 +209,17 @@ export const responses = pgTable(
     choice: text("choice").notNull(),
     answeredAt: timestamp("answered_at", { withTimezone: true })
       .notNull()
-      .defaultNow()
+      .defaultNow(),
+    // Discord snowflake of the interaction that produced the current response.
+    // Numeric ordering rejects delayed retries that arrive after a newer interaction.
+    sourceInteractionId: numeric("source_interaction_id", {
+      precision: 20,
+      scale: 0
+    })
   },
   (table) => [
-    // unique: (sessionId, memberId) で二重回答を排除。押し直しは upsertResponse が
-    //   ON CONFLICT DO UPDATE で最新 choice に上書きする。
+    // unique: (sessionId, memberId) で二重回答を排除。Session aggregate command が
+    //   sourceInteractionId の単調性を確認して最新 choice に上書きする。
     uniqueIndex("responses_session_member_unique").on(
       table.sessionId,
       table.memberId
@@ -397,15 +410,16 @@ export const ocrQueueOutbox = pgTable(
 );
 
 // source-of-truth: Discord 送信の at-least-once 配送キュー。状態遷移 tx で enqueue し、
-//   worker が非同期配送。crash 中でも DB 正本のまま再試行される。 @see ADR-0035
-export const OUTBOX_KINDS = ["send_message", "edit_message"] as const;
+//   worker が非同期配送。crash 中でも DB 正本のまま再試行される。 @see summit ADR-0051
+export const OUTBOX_KINDS = ["send_message"] as const;
 export type OutboxKind = (typeof OUTBOX_KINDS)[number];
 
 export const OUTBOX_STATUSES = [
   "PENDING",
   "IN_FLIGHT",
   "DELIVERED",
-  "FAILED"
+  "FAILED",
+  "CANCELLED"
 ] as const;
 export type OutboxStatus = (typeof OUTBOX_STATUSES)[number];
 
@@ -421,8 +435,8 @@ export const discordOutbox = pgTable(
     // why: 送信時に必要な全情報 (channelId / renderer hint / target 列など) を埋め込む。
     //   rehydration は worker 側で担当する。
     payload: jsonb("payload").notNull(),
-    // unique: 同じ intent の二重 enqueue を防ぐ per-session の決定論キー。
-    //   状態遷移 tx 内で onConflictDoNothing に渡し、重複は skipped=true として上位に通知する。
+    // unique: 同じ intent の二重 enqueue を status / Session を問わず防ぐ決定論キー。
+    //   状態遷移 tx 内で onConflictDoNothing に渡し、FAILED も同じ row を回復させる。
     dedupeKey: text("dedupe_key").notNull(),
     status: text("status").notNull().default("PENDING"),
     attemptCount: integer("attempt_count").notNull().default(0),
@@ -430,6 +444,8 @@ export const discordOutbox = pgTable(
     // race: worker の claim で IN_FLIGHT + claim_expires_at=now+ttl をセット。
     //   reconciler は expire 済み IN_FLIGHT を PENDING に戻して reclaim する。
     claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    // fencing token: claim の所有者だけが delivered / failed を確定できる。
+    claimToken: uuid("claim_token"),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -437,6 +453,11 @@ export const discordOutbox = pgTable(
     // source-of-truth: 配送成功時の Discord message id。
     //   payload.target が指す sessions 列 (askMessageId / postponeMessageId) に worker が書き戻す。
     deliveredMessageId: text("delivered_message_id"),
+    // Session aggregate 内の副作用順序。revision は状態更新ごと、ordinal は同一更新内の順番。
+    aggregateRevision: bigint("aggregate_revision", { mode: "number" })
+      .notNull()
+      .default(0),
+    ordinal: smallint("ordinal").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -448,21 +469,29 @@ export const discordOutbox = pgTable(
     // invariant: kind を OUTBOX_KINDS と DB CHECK で二重ガード。
     check(
       "discord_outbox_kind_check",
-      sql`${table.kind} IN ('send_message','edit_message')`
+      sql`${table.kind} = 'send_message'`
     ),
     check(
       "discord_outbox_status_check",
-      sql`${table.status} IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED')`
+      sql`${table.status} IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED','CANCELLED')`
     ),
-    // unique: 非 FAILED な同 dedupe_key を 1 件に制約 (PENDING/IN_FLIGHT/DELIVERED で「同一 intent 最大 1」)。
-    //   FAILED は dead letter としてスコープ外。partial unique を raw WHERE で表現する。
-    uniqueIndex("uq_discord_outbox_dedupe_active")
-      .on(table.dedupeKey)
-      .where(sql`status IN ('PENDING','IN_FLIGHT','DELIVERED')`),
+    check(
+      "discord_outbox_aggregate_revision_check",
+      sql`${table.aggregateRevision} >= 0`
+    ),
+    check("discord_outbox_ordinal_check", sql`${table.ordinal} >= 0`),
+    // unique: intent の状態を問わず同じ dedupe_key は 1 行だけ。FAILED は同じ行を復帰させる。
+    uniqueIndex("uq_discord_outbox_dedupe")
+      .on(table.dedupeKey),
     // why: claimNextBatch の `status IN ('PENDING','IN_FLIGHT') AND next_attempt_at <= now` を prefix で支援。
     index("idx_discord_outbox_status_next").on(
       table.status,
       table.nextAttemptAt
+    ),
+    uniqueIndex("uq_discord_outbox_session_order").on(
+      table.sessionId,
+      table.aggregateRevision,
+      table.ordinal
     )
   ]
 );

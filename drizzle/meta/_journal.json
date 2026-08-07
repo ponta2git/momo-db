@@ -120,6 +120,27 @@
       "when": 1779600000000,
       "tag": "0016_idempotency_account_expires_at_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786118496001,
+      "tag": "0017_session_aggregate_ordered_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786119037124,
+      "tag": "0018_outbox_send_message_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786119902948,
+      "tag": "0019_rename_outbox_dedupe_index",
+      "breakpoints": true
     }
   ]
 }
