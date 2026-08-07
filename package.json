@@ -22,15 +22,10 @@
     "db:check:ci": "drizzle-kit check",
     "db:migrate:ci": "drizzle-kit migrate"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "engines": {
     "node": "24.x"
   },
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.20.0",
   "dependencies": {
     "drizzle-orm": "^0.45.2"
   },
