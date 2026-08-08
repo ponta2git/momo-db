@@ -20,6 +20,7 @@
     "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
     "db:check": "dotenv -e .env.local -- drizzle-kit check",
     "db:check:ci": "drizzle-kit check",
+    "db:preflight:ci": "node scripts/check-migration-connection.mjs",
     "db:migrate:ci": "drizzle-kit migrate"
   },
   "engines": {

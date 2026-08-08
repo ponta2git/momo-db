@@ -13,17 +13,19 @@ master push 時に GitHub Actions が自動実行される。
 | `Build & Check` | 常に実行 | `pnpm build` + `drizzle-kit check` |
 | `Migrate Neon` | `drizzle/` に変更がある場合のみ | `drizzle-kit migrate`（Neon 本番 DB に適用） |
 
-### GitHub Secret の設定
+### GitHub Environment Secret の設定
 
-`DIRECT_URL` を GitHub リポジトリの Secret として登録する必要がある。
+`DIRECT_URL` を GitHub Environment `CI Actions` の Secret として登録する必要がある。
 
 1. [Neon Console](https://console.neon.tech) を開く
 2. 対象プロジェクト → **Connection Details** → **Direct connection**（Unpooled）をコピー
-3. GitHub リポジトリ → **Settings → Secrets and variables → Actions → New repository secret**
+3. GitHub リポジトリ → **Settings → Environments → CI Actions → Environment secrets**
 4. Name: `DIRECT_URL`、Value: 手順2でコピーした接続文字列を貼り付けて保存
 
 > **重要**: `DIRECT_URL` が未設定の状態で push すると CI が失敗する。
 > 先に Secret を登録してから push すること。
+> Neon project / production branch / DB role を再作成した場合、既存 Secret は自動更新されない。
+> [`docs/ops/neon-production-connection-rotation.md`](./docs/ops/neon-production-connection-rotation.md) に従って同時に更新すること。
 
 ## セットアップ
 
@@ -44,6 +46,7 @@ pnpm build
 | `pnpm db:generate` | スキーマ変更から新マイグレーション SQL を生成 |
 | `pnpm db:migrate` | 未適用のマイグレーションを DB に適用 |
 | `pnpm db:check` | マイグレーションの整合性チェック |
+| `pnpm db:preflight:ci` | CI の migration 用 direct 接続を安全に検証 |
 
 ## ローカル開発（postgres コンテナ使用）
 

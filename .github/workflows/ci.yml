@@ -72,5 +72,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Verify migration connection
+        run: pnpm db:preflight:ci
+
       - name: Run migration
         run: pnpm db:migrate:ci
