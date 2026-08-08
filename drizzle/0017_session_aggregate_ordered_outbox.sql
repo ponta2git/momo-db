@@ -7,20 +7,9 @@ ALTER TABLE "responses" ADD COLUMN "source_interaction_id" numeric(20, 0);--> st
 ALTER TABLE "sessions" ADD COLUMN "revision" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "discord_outbox" ADD CONSTRAINT "discord_outbox_status_check" CHECK ("discord_outbox"."status" IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED','CANCELLED'));--> statement-breakpoint
 
--- Stop without altering legacy business state when the old claim protocol is still visible.
--- An operator must inspect those rows before retrying the migration.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM "sessions"
-    WHERE "status" = 'DECIDED'
-      AND "reminder_sent_at" IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'legacy DECIDED reminder claims require operator review before migration';
-  END IF;
-END
-$$;--> statement-breakpoint
+-- Legacy DECIDED reminder claims are kept intact.  The application migration bridge treats
+-- those rows as ambiguous external sends and re-enqueues the reminder; mutating the marker
+-- here would make the migration destructive and could erase an audit signal.
 
 -- The former partial index allowed duplicate FAILED dedupe keys. Preserve all rows and abort
 -- instead of choosing or rewriting an audit record implicitly.
