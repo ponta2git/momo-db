@@ -48,9 +48,21 @@ jobs:
       - name: drizzle-kit check
         run: pnpm db:check:ci
 
+  approve-migration:
+    name: Approve production migration
+    needs: ci
+    if: needs.ci.outputs.drizzle_changed == 'true'
+    runs-on: ubuntu-latest
+    environment: production-db
+    steps:
+      - name: Confirm approved migration commit
+        run: echo "Production migration approved for ${{ github.sha }}."
+
   migrate:
     name: Migrate Neon
-    needs: ci
+    needs:
+      - ci
+      - approve-migration
     if: needs.ci.outputs.drizzle_changed == 'true'
     runs-on: ubuntu-latest
     # Serialize migrations: never cancel in-progress to avoid partial schema state
