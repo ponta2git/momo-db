@@ -141,6 +141,62 @@
       "when": 1786119902948,
       "tag": "0019_rename_outbox_dedupe_index",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786258098173,
+      "tag": "0020_series_analysis_revision_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786258263037,
+      "tag": "0021_series_analysis_control_plane",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786258446603,
+      "tag": "0022_series_analysis_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786259760272,
+      "tag": "0023_series_analysis_outbox_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786271691315,
+      "tag": "0024_series_analysis_reader_capability",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786289849330,
+      "tag": "0025_amazing_pretty_boy",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786290640654,
+      "tag": "0026_absent_leo",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786350063000,
+      "tag": "0027_harden_analysis_function_search_path",
+      "breakpoints": true
     }
   ]
 }

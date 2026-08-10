@@ -1,0 +1,3 @@
+ALTER TABLE "series_analysis_campaign_targets" ADD COLUMN "algorithm_version" text DEFAULT 'series-analysis-v1' NOT NULL;--> statement-breakpoint
+ALTER TABLE "series_analysis_campaign_targets" ADD COLUMN "artifact_schema_version" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "series_analysis_campaign_targets" ADD CONSTRAINT "series_analysis_campaign_targets_schema_version_check" CHECK ("series_analysis_campaign_targets"."artifact_schema_version" >= 1);

@@ -1,0 +1,5324 @@
+{
+  "id": "8ee6b829-9de7-4caf-9690-0d83ddfee605",
+  "prevId": "d79a987c-064d-45ea-87fe-0f9cd4a91dc0",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.app_sessions": {
+      "name": "app_sessions",
+      "schema": "",
+      "columns": {
+        "id_hash": {
+          "name": "id_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "csrf_secret_hash": {
+          "name": "csrf_secret_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "app_sessions_member_id_idx": {
+          "name": "app_sessions_member_id_idx",
+          "columns": [
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "app_sessions_account_id_idx": {
+          "name": "app_sessions_account_id_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "app_sessions_expires_at_idx": {
+          "name": "app_sessions_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "app_sessions_account_id_momo_login_accounts_id_fk": {
+          "name": "app_sessions_account_id_momo_login_accounts_id_fk",
+          "tableFrom": "app_sessions",
+          "tableTo": "momo_login_accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.discord_outbox": {
+      "name": "discord_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claim_expires_at": {
+          "name": "claim_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claim_token": {
+          "name": "claim_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivered_message_id": {
+          "name": "delivered_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aggregate_revision": {
+          "name": "aggregate_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "ordinal": {
+          "name": "ordinal",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_discord_outbox_dedupe": {
+          "name": "uq_discord_outbox_dedupe",
+          "columns": [
+            {
+              "expression": "dedupe_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_discord_outbox_status_next": {
+          "name": "idx_discord_outbox_status_next",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "next_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_discord_outbox_session_order": {
+          "name": "uq_discord_outbox_session_order",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "aggregate_revision",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ordinal",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "discord_outbox_session_id_sessions_id_fk": {
+          "name": "discord_outbox_session_id_sessions_id_fk",
+          "tableFrom": "discord_outbox",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "discord_outbox_kind_check": {
+          "name": "discord_outbox_kind_check",
+          "value": "\"discord_outbox\".\"kind\" = 'send_message'"
+        },
+        "discord_outbox_status_check": {
+          "name": "discord_outbox_status_check",
+          "value": "\"discord_outbox\".\"status\" IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED','CANCELLED')"
+        },
+        "discord_outbox_aggregate_revision_check": {
+          "name": "discord_outbox_aggregate_revision_check",
+          "value": "\"discord_outbox\".\"aggregate_revision\" >= 0"
+        },
+        "discord_outbox_ordinal_check": {
+          "name": "discord_outbox_ordinal_check",
+          "value": "\"discord_outbox\".\"ordinal\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.game_titles": {
+      "name": "game_titles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "layout_family": {
+          "name": "layout_family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_order": {
+          "name": "display_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "game_titles_name_unique": {
+          "name": "game_titles_name_unique",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.held_event_participants": {
+      "name": "held_event_participants",
+      "schema": "",
+      "columns": {
+        "held_event_id": {
+          "name": "held_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "held_event_participants_held_event_id_held_events_id_fk": {
+          "name": "held_event_participants_held_event_id_held_events_id_fk",
+          "tableFrom": "held_event_participants",
+          "tableTo": "held_events",
+          "columnsFrom": [
+            "held_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "held_event_participants_member_id_members_id_fk": {
+          "name": "held_event_participants_member_id_members_id_fk",
+          "tableFrom": "held_event_participants",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "held_event_participants_held_event_id_member_id_pk": {
+          "name": "held_event_participants_held_event_id_member_id_pk",
+          "columns": [
+            "held_event_id",
+            "member_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.held_events": {
+      "name": "held_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "held_date_iso": {
+          "name": "held_date_iso",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_at": {
+          "name": "start_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "held_events_session_id_sessions_id_fk": {
+          "name": "held_events_session_id_sessions_id_fk",
+          "tableFrom": "held_events",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "held_events_session_id_unique": {
+          "name": "held_events_session_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "session_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.idempotency_keys": {
+      "name": "idempotency_keys",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "endpoint": {
+          "name": "endpoint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "response_status": {
+          "name": "response_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "response_headers": {
+          "name": "response_headers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "response_body": {
+          "name": "response_body",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idempotency_keys_account_expires_at_idx": {
+          "name": "idempotency_keys_account_expires_at_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idempotency_keys_expires_at_idx": {
+          "name": "idempotency_keys_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "idempotency_keys_member_id_members_id_fk": {
+          "name": "idempotency_keys_member_id_members_id_fk",
+          "tableFrom": "idempotency_keys",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "idempotency_keys_account_id_momo_login_accounts_id_fk": {
+          "name": "idempotency_keys_account_id_momo_login_accounts_id_fk",
+          "tableFrom": "idempotency_keys",
+          "tableTo": "momo_login_accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "idempotency_keys_key_account_id_endpoint_pk": {
+          "name": "idempotency_keys_key_account_id_endpoint_pk",
+          "columns": [
+            "key",
+            "account_id",
+            "endpoint"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.incident_masters": {
+      "name": "incident_masters",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_order": {
+          "name": "display_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "incident_masters_key_unique": {
+          "name": "incident_masters_key_unique",
+          "columns": [
+            {
+              "expression": "key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.map_masters": {
+      "name": "map_masters",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_order": {
+          "name": "display_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "map_masters_title_name_unique": {
+          "name": "map_masters_title_name_unique",
+          "columns": [
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "map_masters_game_title_id_game_titles_id_fk": {
+          "name": "map_masters_game_title_id_game_titles_id_fk",
+          "tableFrom": "map_masters",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.match_drafts": {
+      "name": "match_drafts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_by_member_id": {
+          "name": "created_by_member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_account_id": {
+          "name": "created_by_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "held_event_id": {
+          "name": "held_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "match_no_in_event": {
+          "name": "match_no_in_event",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "layout_family": {
+          "name": "layout_family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "season_master_id": {
+          "name": "season_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner_member_id": {
+          "name": "owner_member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_master_id": {
+          "name": "map_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "played_at": {
+          "name": "played_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_assets_image_id": {
+          "name": "total_assets_image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revenue_image_id": {
+          "name": "revenue_image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "incident_log_image_id": {
+          "name": "incident_log_image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_assets_draft_id": {
+          "name": "total_assets_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revenue_draft_id": {
+          "name": "revenue_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "incident_log_draft_id": {
+          "name": "incident_log_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_images_retained_until": {
+          "name": "source_images_retained_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_images_deleted_at": {
+          "name": "source_images_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_match_id": {
+          "name": "confirmed_match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "match_drafts_status_updated_at_idx": {
+          "name": "match_drafts_status_updated_at_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_drafts_created_by_status_idx": {
+          "name": "match_drafts_created_by_status_idx",
+          "columns": [
+            {
+              "expression": "created_by_member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_drafts_created_by_account_status_idx": {
+          "name": "match_drafts_created_by_account_status_idx",
+          "columns": [
+            {
+              "expression": "created_by_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_drafts_held_event_id_idx": {
+          "name": "match_drafts_held_event_id_idx",
+          "columns": [
+            {
+              "expression": "held_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_drafts_confirmed_match_id_unique": {
+          "name": "match_drafts_confirmed_match_id_unique",
+          "columns": [
+            {
+              "expression": "confirmed_match_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "match_drafts_created_by_member_id_members_id_fk": {
+          "name": "match_drafts_created_by_member_id_members_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "members",
+          "columnsFrom": [
+            "created_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_created_by_account_id_momo_login_accounts_id_fk": {
+          "name": "match_drafts_created_by_account_id_momo_login_accounts_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "momo_login_accounts",
+          "columnsFrom": [
+            "created_by_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_held_event_id_held_events_id_fk": {
+          "name": "match_drafts_held_event_id_held_events_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "held_events",
+          "columnsFrom": [
+            "held_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_game_title_id_game_titles_id_fk": {
+          "name": "match_drafts_game_title_id_game_titles_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_season_master_id_season_masters_id_fk": {
+          "name": "match_drafts_season_master_id_season_masters_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "season_masters",
+          "columnsFrom": [
+            "season_master_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_owner_member_id_members_id_fk": {
+          "name": "match_drafts_owner_member_id_members_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "members",
+          "columnsFrom": [
+            "owner_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_map_master_id_map_masters_id_fk": {
+          "name": "match_drafts_map_master_id_map_masters_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "map_masters",
+          "columnsFrom": [
+            "map_master_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_drafts_confirmed_match_id_matches_id_fk": {
+          "name": "match_drafts_confirmed_match_id_matches_id_fk",
+          "tableFrom": "match_drafts",
+          "tableTo": "matches",
+          "columnsFrom": [
+            "confirmed_match_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "match_drafts_status_check": {
+          "name": "match_drafts_status_check",
+          "value": "\"match_drafts\".\"status\" IN ('ocr_running','ocr_failed','draft_ready','needs_review','confirmed','cancelled')"
+        },
+        "match_drafts_match_no_in_event_check": {
+          "name": "match_drafts_match_no_in_event_check",
+          "value": "\"match_drafts\".\"match_no_in_event\" IS NULL OR \"match_drafts\".\"match_no_in_event\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.match_incidents": {
+      "name": "match_incidents",
+      "schema": "",
+      "columns": {
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "incident_master_id": {
+          "name": "incident_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "match_incidents_match_id_idx": {
+          "name": "match_incidents_match_id_idx",
+          "columns": [
+            {
+              "expression": "match_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "match_incidents_match_id_matches_id_fk": {
+          "name": "match_incidents_match_id_matches_id_fk",
+          "tableFrom": "match_incidents",
+          "tableTo": "matches",
+          "columnsFrom": [
+            "match_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "match_incidents_member_id_members_id_fk": {
+          "name": "match_incidents_member_id_members_id_fk",
+          "tableFrom": "match_incidents",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "match_incidents_incident_master_id_incident_masters_id_fk": {
+          "name": "match_incidents_incident_master_id_incident_masters_id_fk",
+          "tableFrom": "match_incidents",
+          "tableTo": "incident_masters",
+          "columnsFrom": [
+            "incident_master_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "match_incidents_match_id_member_id_incident_master_id_pk": {
+          "name": "match_incidents_match_id_member_id_incident_master_id_pk",
+          "columns": [
+            "match_id",
+            "member_id",
+            "incident_master_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "match_incidents_count_check": {
+          "name": "match_incidents_count_check",
+          "value": "\"match_incidents\".\"count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.match_players": {
+      "name": "match_players",
+      "schema": "",
+      "columns": {
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "play_order": {
+          "name": "play_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rank": {
+          "name": "rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_assets_man_yen": {
+          "name": "total_assets_man_yen",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revenue_man_yen": {
+          "name": "revenue_man_yen",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "match_players_match_play_order_unique": {
+          "name": "match_players_match_play_order_unique",
+          "columns": [
+            {
+              "expression": "match_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "play_order",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_players_match_rank_unique": {
+          "name": "match_players_match_rank_unique",
+          "columns": [
+            {
+              "expression": "match_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "rank",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "match_players_match_id_matches_id_fk": {
+          "name": "match_players_match_id_matches_id_fk",
+          "tableFrom": "match_players",
+          "tableTo": "matches",
+          "columnsFrom": [
+            "match_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "match_players_member_id_members_id_fk": {
+          "name": "match_players_member_id_members_id_fk",
+          "tableFrom": "match_players",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "match_players_match_id_member_id_pk": {
+          "name": "match_players_match_id_member_id_pk",
+          "columns": [
+            "match_id",
+            "member_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "match_players_play_order_check": {
+          "name": "match_players_play_order_check",
+          "value": "\"match_players\".\"play_order\" BETWEEN 1 AND 4"
+        },
+        "match_players_rank_check": {
+          "name": "match_players_rank_check",
+          "value": "\"match_players\".\"rank\" BETWEEN 1 AND 4"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.matches": {
+      "name": "matches",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "held_event_id": {
+          "name": "held_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "match_no_in_event": {
+          "name": "match_no_in_event",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "layout_family": {
+          "name": "layout_family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "season_master_id": {
+          "name": "season_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_member_id": {
+          "name": "owner_member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "map_master_id": {
+          "name": "map_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "played_at": {
+          "name": "played_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_assets_draft_id": {
+          "name": "total_assets_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revenue_draft_id": {
+          "name": "revenue_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "incident_log_draft_id": {
+          "name": "incident_log_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_member_id": {
+          "name": "created_by_member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_account_id": {
+          "name": "created_by_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "analysis_revision": {
+          "name": "analysis_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        }
+      },
+      "indexes": {
+        "matches_event_match_no_unique": {
+          "name": "matches_event_match_no_unique",
+          "columns": [
+            {
+              "expression": "held_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "match_no_in_event",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "matches_held_event_id_idx": {
+          "name": "matches_held_event_id_idx",
+          "columns": [
+            {
+              "expression": "held_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "matches_created_by_account_id_idx": {
+          "name": "matches_created_by_account_id_idx",
+          "columns": [
+            {
+              "expression": "created_by_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "matches_played_at_idx": {
+          "name": "matches_played_at_idx",
+          "columns": [
+            {
+              "expression": "played_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "matches_held_event_id_held_events_id_fk": {
+          "name": "matches_held_event_id_held_events_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "held_events",
+          "columnsFrom": [
+            "held_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_game_title_id_game_titles_id_fk": {
+          "name": "matches_game_title_id_game_titles_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_season_master_id_season_masters_id_fk": {
+          "name": "matches_season_master_id_season_masters_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "season_masters",
+          "columnsFrom": [
+            "season_master_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_owner_member_id_members_id_fk": {
+          "name": "matches_owner_member_id_members_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "members",
+          "columnsFrom": [
+            "owner_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_map_master_id_map_masters_id_fk": {
+          "name": "matches_map_master_id_map_masters_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "map_masters",
+          "columnsFrom": [
+            "map_master_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_created_by_member_id_members_id_fk": {
+          "name": "matches_created_by_member_id_members_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "members",
+          "columnsFrom": [
+            "created_by_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_created_by_account_id_momo_login_accounts_id_fk": {
+          "name": "matches_created_by_account_id_momo_login_accounts_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "momo_login_accounts",
+          "columnsFrom": [
+            "created_by_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "matches_match_no_in_event_check": {
+          "name": "matches_match_no_in_event_check",
+          "value": "\"matches\".\"match_no_in_event\" >= 1"
+        },
+        "matches_analysis_revision_check": {
+          "name": "matches_analysis_revision_check",
+          "value": "\"matches\".\"analysis_revision\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.member_aliases": {
+      "name": "member_aliases",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alias": {
+          "name": "alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "member_aliases_member_alias_unique": {
+          "name": "member_aliases_member_alias_unique",
+          "columns": [
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "alias",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "member_aliases_alias_idx": {
+          "name": "member_aliases_alias_idx",
+          "columns": [
+            {
+              "expression": "alias",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "member_aliases_member_id_members_id_fk": {
+          "name": "member_aliases_member_id_members_id_fk",
+          "tableFrom": "member_aliases",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.members": {
+      "name": "members",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "members_user_id_unique": {
+          "name": "members_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.momo_login_accounts": {
+      "name": "momo_login_accounts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "discord_user_id": {
+          "name": "discord_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "player_member_id": {
+          "name": "player_member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "login_enabled": {
+          "name": "login_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "is_admin": {
+          "name": "is_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "momo_login_accounts_player_member_id_idx": {
+          "name": "momo_login_accounts_player_member_id_idx",
+          "columns": [
+            {
+              "expression": "player_member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "momo_login_accounts_login_enabled_idx": {
+          "name": "momo_login_accounts_login_enabled_idx",
+          "columns": [
+            {
+              "expression": "login_enabled",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "momo_login_accounts_is_admin_idx": {
+          "name": "momo_login_accounts_is_admin_idx",
+          "columns": [
+            {
+              "expression": "is_admin",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "momo_login_accounts_player_member_id_members_id_fk": {
+          "name": "momo_login_accounts_player_member_id_members_id_fk",
+          "tableFrom": "momo_login_accounts",
+          "tableTo": "members",
+          "columnsFrom": [
+            "player_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "momo_login_accounts_discord_user_id_unique": {
+          "name": "momo_login_accounts_discord_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "discord_user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ocr_drafts": {
+      "name": "ocr_drafts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_screen_type": {
+          "name": "requested_screen_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detected_screen_type": {
+          "name": "detected_screen_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "warnings_json": {
+          "name": "warnings_json",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "timings_ms_json": {
+          "name": "timings_ms_json",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ocr_drafts_job_id_unique": {
+          "name": "ocr_drafts_job_id_unique",
+          "columns": [
+            {
+              "expression": "job_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ocr_drafts_payload_json_object_check": {
+          "name": "ocr_drafts_payload_json_object_check",
+          "value": "jsonb_typeof(\"ocr_drafts\".\"payload_json\") = 'object'"
+        },
+        "ocr_drafts_warnings_json_array_check": {
+          "name": "ocr_drafts_warnings_json_array_check",
+          "value": "jsonb_typeof(\"ocr_drafts\".\"warnings_json\") = 'array'"
+        },
+        "ocr_drafts_timings_ms_json_object_check": {
+          "name": "ocr_drafts_timings_ms_json_object_check",
+          "value": "jsonb_typeof(\"ocr_drafts\".\"timings_ms_json\") = 'object'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ocr_jobs": {
+      "name": "ocr_jobs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "image_id": {
+          "name": "image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "image_path": {
+          "name": "image_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_screen_type": {
+          "name": "requested_screen_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detected_screen_type": {
+          "name": "detected_screen_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "worker_id": {
+          "name": "worker_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_message": {
+          "name": "failure_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_retryable": {
+          "name": "failure_retryable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_user_action": {
+          "name": "failure_user_action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ocr_jobs_draft_id_unique": {
+          "name": "ocr_jobs_draft_id_unique",
+          "columns": [
+            {
+              "expression": "draft_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ocr_jobs_status_created_at_idx": {
+          "name": "ocr_jobs_status_created_at_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ocr_jobs_image_id_idx": {
+          "name": "ocr_jobs_image_id_idx",
+          "columns": [
+            {
+              "expression": "image_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ocr_queue_outbox": {
+      "name": "ocr_queue_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stream_payload": {
+          "name": "stream_payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claim_expires_at": {
+          "name": "claim_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "redis_message_id": {
+          "name": "redis_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_ocr_queue_outbox_dedupe_active": {
+          "name": "uq_ocr_queue_outbox_dedupe_active",
+          "columns": [
+            {
+              "expression": "dedupe_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status IN ('PENDING','IN_FLIGHT','DELIVERED')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_ocr_queue_outbox_status_next": {
+          "name": "idx_ocr_queue_outbox_status_next",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "next_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_ocr_queue_outbox_job_id": {
+          "name": "idx_ocr_queue_outbox_job_id",
+          "columns": [
+            {
+              "expression": "job_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ocr_queue_outbox_job_id_ocr_jobs_id_fk": {
+          "name": "ocr_queue_outbox_job_id_ocr_jobs_id_fk",
+          "tableFrom": "ocr_queue_outbox",
+          "tableTo": "ocr_jobs",
+          "columnsFrom": [
+            "job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ocr_queue_outbox_stream_payload_object_check": {
+          "name": "ocr_queue_outbox_stream_payload_object_check",
+          "value": "jsonb_typeof(\"ocr_queue_outbox\".\"stream_payload\") = 'object'"
+        },
+        "ocr_queue_outbox_status_check": {
+          "name": "ocr_queue_outbox_status_check",
+          "value": "\"ocr_queue_outbox\".\"status\" IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED')"
+        },
+        "ocr_queue_outbox_attempt_count_check": {
+          "name": "ocr_queue_outbox_attempt_count_check",
+          "value": "\"ocr_queue_outbox\".\"attempt_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.responses": {
+      "name": "responses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "choice": {
+          "name": "choice",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answered_at": {
+          "name": "answered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "source_interaction_id": {
+          "name": "source_interaction_id",
+          "type": "numeric(20, 0)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "responses_session_member_unique": {
+          "name": "responses_session_member_unique",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "responses_session_id_sessions_id_fk": {
+          "name": "responses_session_id_sessions_id_fk",
+          "tableFrom": "responses",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "responses_member_id_members_id_fk": {
+          "name": "responses_member_id_members_id_fk",
+          "tableFrom": "responses",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "responses_choice_check": {
+          "name": "responses_choice_check",
+          "value": "\"responses\".\"choice\" IN ('T2200','T2230','T2300','T2330','ABSENT','POSTPONE_OK','POSTPONE_NG')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.season_masters": {
+      "name": "season_masters",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_order": {
+          "name": "display_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "season_masters_title_name_unique": {
+          "name": "season_masters_title_name_unique",
+          "columns": [
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "season_masters_game_title_id_game_titles_id_fk": {
+          "name": "season_masters_game_title_id_game_titles_id_fk",
+          "tableFrom": "season_masters",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_artifacts": {
+      "name": "series_analysis_artifacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_revision": {
+          "name": "input_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_input_checksum": {
+          "name": "source_input_checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "root_checksum": {
+          "name": "root_checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'staging'"
+        },
+        "aggregate_chunk_count": {
+          "name": "aggregate_chunk_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "review_chunk_count": {
+          "name": "review_chunk_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "drilldown_chunk_count": {
+          "name": "drilldown_chunk_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "match_context_chunk_count": {
+          "name": "match_context_chunk_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encoded_bytes": {
+          "name": "encoded_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_bytes": {
+          "name": "decoded_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "series_analysis_artifacts_id_title_unique": {
+          "name": "series_analysis_artifacts_id_title_unique",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_artifacts_staging_cleanup_idx": {
+          "name": "series_analysis_artifacts_staging_cleanup_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_artifacts\".\"status\" = 'staging'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_artifacts_title_published_idx": {
+          "name": "series_analysis_artifacts_title_published_idx",
+          "columns": [
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "published_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_artifacts\".\"status\" = 'published'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_artifacts_game_title_id_game_titles_id_fk": {
+          "name": "series_analysis_artifacts_game_title_id_game_titles_id_fk",
+          "tableFrom": "series_analysis_artifacts",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "series_analysis_artifacts_attempt_id_series_analysis_job_attempts_id_fk": {
+          "name": "series_analysis_artifacts_attempt_id_series_analysis_job_attempts_id_fk",
+          "tableFrom": "series_analysis_artifacts",
+          "tableTo": "series_analysis_job_attempts",
+          "columnsFrom": [
+            "attempt_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_artifacts_input_revision_check": {
+          "name": "series_analysis_artifacts_input_revision_check",
+          "value": "\"series_analysis_artifacts\".\"input_revision\" >= 0"
+        },
+        "series_analysis_artifacts_schema_version_check": {
+          "name": "series_analysis_artifacts_schema_version_check",
+          "value": "\"series_analysis_artifacts\".\"artifact_schema_version\" >= 1"
+        },
+        "series_analysis_artifacts_status_check": {
+          "name": "series_analysis_artifacts_status_check",
+          "value": "\"series_analysis_artifacts\".\"status\" IN ('staging','published')"
+        },
+        "series_analysis_artifacts_checksum_check": {
+          "name": "series_analysis_artifacts_checksum_check",
+          "value": "\"series_analysis_artifacts\".\"source_input_checksum\" ~ '^sha256:[0-9a-f]{64}$' AND \"series_analysis_artifacts\".\"root_checksum\" ~ '^sha256:[0-9a-f]{64}$'"
+        },
+        "series_analysis_artifacts_chunk_counts_check": {
+          "name": "series_analysis_artifacts_chunk_counts_check",
+          "value": "\"series_analysis_artifacts\".\"aggregate_chunk_count\" >= 1 AND \"series_analysis_artifacts\".\"review_chunk_count\" >= 0 AND \"series_analysis_artifacts\".\"drilldown_chunk_count\" >= 0 AND \"series_analysis_artifacts\".\"match_context_chunk_count\" >= 0"
+        },
+        "series_analysis_artifacts_bytes_check": {
+          "name": "series_analysis_artifacts_bytes_check",
+          "value": "\"series_analysis_artifacts\".\"encoded_bytes\" >= 0 AND \"series_analysis_artifacts\".\"decoded_bytes\" = \"series_analysis_artifacts\".\"encoded_bytes\""
+        },
+        "series_analysis_artifacts_publication_shape_check": {
+          "name": "series_analysis_artifacts_publication_shape_check",
+          "value": "(\"series_analysis_artifacts\".\"status\" = 'published') = (\"series_analysis_artifacts\".\"published_at\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_campaign_targets": {
+      "name": "series_analysis_campaign_targets",
+      "schema": "",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_revision": {
+          "name": "input_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'series-analysis-v1'"
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "job_request_id": {
+          "name": "job_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "series_analysis_campaign_targets_pending_idx": {
+          "name": "series_analysis_campaign_targets_pending_idx",
+          "columns": [
+            {
+              "expression": "accepted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_campaign_targets\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_campaign_targets_campaign_id_series_analysis_campaigns_id_fk": {
+          "name": "series_analysis_campaign_targets_campaign_id_series_analysis_campaigns_id_fk",
+          "tableFrom": "series_analysis_campaign_targets",
+          "tableTo": "series_analysis_campaigns",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "series_analysis_campaign_targets_campaign_id_game_title_id_pk": {
+          "name": "series_analysis_campaign_targets_campaign_id_game_title_id_pk",
+          "columns": [
+            "campaign_id",
+            "game_title_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_campaign_targets_input_revision_check": {
+          "name": "series_analysis_campaign_targets_input_revision_check",
+          "value": "\"series_analysis_campaign_targets\".\"input_revision\" >= 0"
+        },
+        "series_analysis_campaign_targets_schema_version_check": {
+          "name": "series_analysis_campaign_targets_schema_version_check",
+          "value": "\"series_analysis_campaign_targets\".\"artifact_schema_version\" >= 1"
+        },
+        "series_analysis_campaign_targets_status_check": {
+          "name": "series_analysis_campaign_targets_status_check",
+          "value": "\"series_analysis_campaign_targets\".\"status\" IN ('pending','expanded','running','succeeded','failed','skipped_title_deleted')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_campaigns": {
+      "name": "series_analysis_campaigns",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "operation_request_id": {
+          "name": "operation_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "target_count": {
+          "name": "target_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expanded_count": {
+          "name": "expanded_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "terminal_count": {
+          "name": "terminal_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "failed_count": {
+          "name": "failed_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "skipped_count": {
+          "name": "skipped_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "series_analysis_campaigns_status_accepted_idx": {
+          "name": "series_analysis_campaigns_status_accepted_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "accepted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_campaigns_terminal_cleanup_idx": {
+          "name": "series_analysis_campaigns_terminal_cleanup_idx",
+          "columns": [
+            {
+              "expression": "finished_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_campaigns\".\"status\" = 'terminal'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_campaigns_operation_request_id_series_analysis_operation_requests_id_fk": {
+          "name": "series_analysis_campaigns_operation_request_id_series_analysis_operation_requests_id_fk",
+          "tableFrom": "series_analysis_campaigns",
+          "tableTo": "series_analysis_operation_requests",
+          "columnsFrom": [
+            "operation_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "series_analysis_campaigns_operation_request_id_unique": {
+          "name": "series_analysis_campaigns_operation_request_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "operation_request_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_campaigns_trigger_check": {
+          "name": "series_analysis_campaigns_trigger_check",
+          "value": "\"series_analysis_campaigns\".\"trigger\" IN ('manual','algorithm_update','artifact_schema_update','initial_backfill')"
+        },
+        "series_analysis_campaigns_status_check": {
+          "name": "series_analysis_campaigns_status_check",
+          "value": "\"series_analysis_campaigns\".\"status\" IN ('queued','expanding','running','terminal')"
+        },
+        "series_analysis_campaigns_schema_version_check": {
+          "name": "series_analysis_campaigns_schema_version_check",
+          "value": "\"series_analysis_campaigns\".\"artifact_schema_version\" >= 1"
+        },
+        "series_analysis_campaigns_counts_check": {
+          "name": "series_analysis_campaigns_counts_check",
+          "value": "\"series_analysis_campaigns\".\"target_count\" >= 0 AND \"series_analysis_campaigns\".\"expanded_count\" >= 0 AND \"series_analysis_campaigns\".\"terminal_count\" >= 0 AND \"series_analysis_campaigns\".\"failed_count\" >= 0 AND \"series_analysis_campaigns\".\"skipped_count\" >= 0 AND \"series_analysis_campaigns\".\"expanded_count\" <= \"series_analysis_campaigns\".\"target_count\" AND \"series_analysis_campaigns\".\"terminal_count\" <= \"series_analysis_campaigns\".\"target_count\" AND \"series_analysis_campaigns\".\"failed_count\" + \"series_analysis_campaigns\".\"skipped_count\" <= \"series_analysis_campaigns\".\"terminal_count\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_drilldown_artifacts": {
+      "name": "series_analysis_drilldown_artifacts",
+      "schema": "",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_kind": {
+          "name": "scope_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "season_master_id": {
+          "name": "season_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_master_id": {
+          "name": "map_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metric_id": {
+          "name": "metric_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encoded_bytes": {
+          "name": "encoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_bytes": {
+          "name": "decoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nesting_depth": {
+          "name": "nesting_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "series_analysis_drilldown_artifacts_artifact_id_series_analysis_artifacts_id_fk": {
+          "name": "series_analysis_drilldown_artifacts_artifact_id_series_analysis_artifacts_id_fk",
+          "tableFrom": "series_analysis_drilldown_artifacts",
+          "tableTo": "series_analysis_artifacts",
+          "columnsFrom": [
+            "artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "series_analysis_drilldown_artifacts_artifact_id_scope_key_member_id_metric_id_pk": {
+          "name": "series_analysis_drilldown_artifacts_artifact_id_scope_key_member_id_metric_id_pk",
+          "columns": [
+            "artifact_id",
+            "scope_key",
+            "member_id",
+            "metric_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_drilldown_artifacts_scope_check": {
+          "name": "series_analysis_drilldown_artifacts_scope_check",
+          "value": "(\"series_analysis_drilldown_artifacts\".\"scope_kind\" = 'overall' AND \"series_analysis_drilldown_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_drilldown_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_drilldown_artifacts\".\"scope_key\" = 'overall') OR (\"series_analysis_drilldown_artifacts\".\"scope_kind\" = 'season' AND \"series_analysis_drilldown_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_drilldown_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_drilldown_artifacts\".\"scope_key\" = 'season:' || \"series_analysis_drilldown_artifacts\".\"season_master_id\") OR (\"series_analysis_drilldown_artifacts\".\"scope_kind\" = 'map' AND \"series_analysis_drilldown_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_drilldown_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_drilldown_artifacts\".\"scope_key\" = 'map:' || \"series_analysis_drilldown_artifacts\".\"map_master_id\") OR (\"series_analysis_drilldown_artifacts\".\"scope_kind\" = 'season_map' AND \"series_analysis_drilldown_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_drilldown_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_drilldown_artifacts\".\"scope_key\" = 'season_map:' || \"series_analysis_drilldown_artifacts\".\"season_master_id\" || ':' || \"series_analysis_drilldown_artifacts\".\"map_master_id\")"
+        },
+        "series_analysis_drilldown_artifacts_chunk_check": {
+          "name": "series_analysis_drilldown_artifacts_chunk_check",
+          "value": "\"series_analysis_drilldown_artifacts\".\"encoded_bytes\" >= 2 AND \"series_analysis_drilldown_artifacts\".\"encoded_bytes\" = octet_length(\"series_analysis_drilldown_artifacts\".\"payload\") AND \"series_analysis_drilldown_artifacts\".\"decoded_bytes\" = \"series_analysis_drilldown_artifacts\".\"encoded_bytes\" AND \"series_analysis_drilldown_artifacts\".\"item_count\" >= 0 AND \"series_analysis_drilldown_artifacts\".\"nesting_depth\" BETWEEN 1 AND 64 AND \"series_analysis_drilldown_artifacts\".\"checksum\" ~ '^sha256:[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_job_attempts": {
+      "name": "series_analysis_job_attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_no": {
+          "name": "attempt_no",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fencing_token": {
+          "name": "fencing_token",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_revision": {
+          "name": "input_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effective_config_version": {
+          "name": "effective_config_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "calculation_timeout_milliseconds": {
+          "name": "calculation_timeout_milliseconds",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "elapsed_milliseconds": {
+          "name": "elapsed_milliseconds",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "calculation_milliseconds": {
+          "name": "calculation_milliseconds",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "staging_milliseconds": {
+          "name": "staging_milliseconds",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "publication_milliseconds": {
+          "name": "publication_milliseconds",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "child_peak_bytes": {
+          "name": "child_peak_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "worker_peak_bytes": {
+          "name": "worker_peak_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "series_analysis_job_attempts_job_no_unique": {
+          "name": "series_analysis_job_attempts_job_no_unique",
+          "columns": [
+            {
+              "expression": "job_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_job_attempts_running_idx": {
+          "name": "series_analysis_job_attempts_running_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_job_attempts\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_job_attempts_job_id_series_analysis_jobs_id_fk": {
+          "name": "series_analysis_job_attempts_job_id_series_analysis_jobs_id_fk",
+          "tableFrom": "series_analysis_job_attempts",
+          "tableTo": "series_analysis_jobs",
+          "columnsFrom": [
+            "job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_job_attempts_positive_check": {
+          "name": "series_analysis_job_attempts_positive_check",
+          "value": "\"series_analysis_job_attempts\".\"attempt_no\" >= 1 AND \"series_analysis_job_attempts\".\"fencing_token\" >= 1 AND \"series_analysis_job_attempts\".\"input_revision\" >= 0 AND \"series_analysis_job_attempts\".\"artifact_schema_version\" >= 1 AND \"series_analysis_job_attempts\".\"calculation_timeout_milliseconds\" >= 1"
+        },
+        "series_analysis_job_attempts_status_check": {
+          "name": "series_analysis_job_attempts_status_check",
+          "value": "\"series_analysis_job_attempts\".\"status\" IN ('running','terminal')"
+        },
+        "series_analysis_job_attempts_terminal_shape_check": {
+          "name": "series_analysis_job_attempts_terminal_shape_check",
+          "value": "(\"series_analysis_job_attempts\".\"status\" = 'terminal' AND \"series_analysis_job_attempts\".\"outcome\" IS NOT NULL AND \"series_analysis_job_attempts\".\"finished_at\" IS NOT NULL) OR (\"series_analysis_job_attempts\".\"status\" = 'running' AND \"series_analysis_job_attempts\".\"outcome\" IS NULL AND \"series_analysis_job_attempts\".\"finished_at\" IS NULL)"
+        },
+        "series_analysis_job_attempts_outcome_check": {
+          "name": "series_analysis_job_attempts_outcome_check",
+          "value": "\"series_analysis_job_attempts\".\"outcome\" IS NULL OR \"series_analysis_job_attempts\".\"outcome\" IN ('succeeded','failed','timed_out','superseded','preempted','owner_lost','graceful_stop')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_job_requests": {
+      "name": "series_analysis_job_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_request_id": {
+          "name": "operation_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_revision": {
+          "name": "input_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "force_run": {
+          "name": "force_run",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "assigned_job_id": {
+          "name": "assigned_job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assigned_attempt_id": {
+          "name": "assigned_attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "fulfilled_at": {
+          "name": "fulfilled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "series_analysis_job_requests_pending_title_idx": {
+          "name": "series_analysis_job_requests_pending_title_idx",
+          "columns": [
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "accepted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_job_requests\".\"status\" IN ('pending','assigned')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_job_requests_terminal_cleanup_idx": {
+          "name": "series_analysis_job_requests_terminal_cleanup_idx",
+          "columns": [
+            {
+              "expression": "fulfilled_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_job_requests\".\"status\" = 'fulfilled'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_job_requests_operation_request_id_series_analysis_operation_requests_id_fk": {
+          "name": "series_analysis_job_requests_operation_request_id_series_analysis_operation_requests_id_fk",
+          "tableFrom": "series_analysis_job_requests",
+          "tableTo": "series_analysis_operation_requests",
+          "columnsFrom": [
+            "operation_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "series_analysis_job_requests_campaign_id_series_analysis_campaigns_id_fk": {
+          "name": "series_analysis_job_requests_campaign_id_series_analysis_campaigns_id_fk",
+          "tableFrom": "series_analysis_job_requests",
+          "tableTo": "series_analysis_campaigns",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "series_analysis_job_requests_assigned_job_id_series_analysis_jobs_id_fk": {
+          "name": "series_analysis_job_requests_assigned_job_id_series_analysis_jobs_id_fk",
+          "tableFrom": "series_analysis_job_requests",
+          "tableTo": "series_analysis_jobs",
+          "columnsFrom": [
+            "assigned_job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_job_requests_input_revision_check": {
+          "name": "series_analysis_job_requests_input_revision_check",
+          "value": "\"series_analysis_job_requests\".\"input_revision\" >= 0"
+        },
+        "series_analysis_job_requests_schema_version_check": {
+          "name": "series_analysis_job_requests_schema_version_check",
+          "value": "\"series_analysis_job_requests\".\"artifact_schema_version\" >= 1"
+        },
+        "series_analysis_job_requests_status_check": {
+          "name": "series_analysis_job_requests_status_check",
+          "value": "\"series_analysis_job_requests\".\"status\" IN ('pending','assigned','fulfilled')"
+        },
+        "series_analysis_job_requests_trigger_check": {
+          "name": "series_analysis_job_requests_trigger_check",
+          "value": "\"series_analysis_job_requests\".\"trigger\" IN ('manual','artifact_schema_update','algorithm_update','initial_backfill','match_mutation')"
+        },
+        "series_analysis_job_requests_fulfilled_shape_check": {
+          "name": "series_analysis_job_requests_fulfilled_shape_check",
+          "value": "(\"series_analysis_job_requests\".\"status\" = 'fulfilled') = (\"series_analysis_job_requests\".\"fulfilled_at\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_jobs": {
+      "name": "series_analysis_jobs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_revision": {
+          "name": "input_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "available_at": {
+          "name": "available_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_owner": {
+          "name": "lease_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_attempt_id": {
+          "name": "lease_attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_fencing_token": {
+          "name": "lease_fencing_token",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "transient_retry_count": {
+          "name": "transient_retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "lease_recovery_count": {
+          "name": "lease_recovery_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "result_disposition": {
+          "name": "result_disposition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "output_checksum": {
+          "name": "output_checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "safe_failure_code": {
+          "name": "safe_failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "elapsed_milliseconds": {
+          "name": "elapsed_milliseconds",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "series_analysis_jobs_active_title_unique": {
+          "name": "series_analysis_jobs_active_title_unique",
+          "columns": [
+            {
+              "expression": "game_title_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"series_analysis_jobs\".\"status\" IN ('queued','running')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_jobs_claim_idx": {
+          "name": "series_analysis_jobs_claim_idx",
+          "columns": [
+            {
+              "expression": "available_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "requested_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_jobs\".\"status\" = 'queued'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_jobs_terminal_cleanup_idx": {
+          "name": "series_analysis_jobs_terminal_cleanup_idx",
+          "columns": [
+            {
+              "expression": "finished_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_jobs\".\"status\" IN ('succeeded','failed','timed_out')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_jobs_game_title_id_game_titles_id_fk": {
+          "name": "series_analysis_jobs_game_title_id_game_titles_id_fk",
+          "tableFrom": "series_analysis_jobs",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_jobs_input_revision_check": {
+          "name": "series_analysis_jobs_input_revision_check",
+          "value": "\"series_analysis_jobs\".\"input_revision\" >= 0"
+        },
+        "series_analysis_jobs_schema_version_check": {
+          "name": "series_analysis_jobs_schema_version_check",
+          "value": "\"series_analysis_jobs\".\"artifact_schema_version\" >= 1"
+        },
+        "series_analysis_jobs_status_check": {
+          "name": "series_analysis_jobs_status_check",
+          "value": "\"series_analysis_jobs\".\"status\" IN ('queued','running','succeeded','failed','timed_out')"
+        },
+        "series_analysis_jobs_trigger_check": {
+          "name": "series_analysis_jobs_trigger_check",
+          "value": "\"series_analysis_jobs\".\"trigger\" IN ('manual','artifact_schema_update','algorithm_update','initial_backfill','match_mutation')"
+        },
+        "series_analysis_jobs_counts_check": {
+          "name": "series_analysis_jobs_counts_check",
+          "value": "\"series_analysis_jobs\".\"attempt_count\" >= 0 AND \"series_analysis_jobs\".\"transient_retry_count\" BETWEEN 0 AND 3 AND \"series_analysis_jobs\".\"lease_recovery_count\" BETWEEN 0 AND 3"
+        },
+        "series_analysis_jobs_result_disposition_check": {
+          "name": "series_analysis_jobs_result_disposition_check",
+          "value": "\"series_analysis_jobs\".\"result_disposition\" IN ('published','reused','none')"
+        },
+        "series_analysis_jobs_lease_shape_check": {
+          "name": "series_analysis_jobs_lease_shape_check",
+          "value": "(\"series_analysis_jobs\".\"status\" = 'running' AND \"series_analysis_jobs\".\"lease_owner\" IS NOT NULL AND \"series_analysis_jobs\".\"lease_attempt_id\" IS NOT NULL AND \"series_analysis_jobs\".\"lease_fencing_token\" IS NOT NULL AND \"series_analysis_jobs\".\"lease_expires_at\" IS NOT NULL) OR (\"series_analysis_jobs\".\"status\" <> 'running' AND \"series_analysis_jobs\".\"lease_owner\" IS NULL AND \"series_analysis_jobs\".\"lease_attempt_id\" IS NULL AND \"series_analysis_jobs\".\"lease_fencing_token\" IS NULL AND \"series_analysis_jobs\".\"lease_expires_at\" IS NULL)"
+        },
+        "series_analysis_jobs_terminal_shape_check": {
+          "name": "series_analysis_jobs_terminal_shape_check",
+          "value": "(\"series_analysis_jobs\".\"status\" IN ('succeeded','failed','timed_out')) = (\"series_analysis_jobs\".\"finished_at\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_match_context_artifacts": {
+      "name": "series_analysis_match_context_artifacts",
+      "schema": "",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_kind": {
+          "name": "scope_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "season_master_id": {
+          "name": "season_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_master_id": {
+          "name": "map_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_match_revision": {
+          "name": "source_match_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encoded_bytes": {
+          "name": "encoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_bytes": {
+          "name": "decoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nesting_depth": {
+          "name": "nesting_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "series_analysis_match_context_artifacts_match_idx": {
+          "name": "series_analysis_match_context_artifacts_match_idx",
+          "columns": [
+            {
+              "expression": "match_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_match_context_artifacts_artifact_id_series_analysis_artifacts_id_fk": {
+          "name": "series_analysis_match_context_artifacts_artifact_id_series_analysis_artifacts_id_fk",
+          "tableFrom": "series_analysis_match_context_artifacts",
+          "tableTo": "series_analysis_artifacts",
+          "columnsFrom": [
+            "artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "series_analysis_match_context_artifacts_artifact_id_scope_key_match_id_pk": {
+          "name": "series_analysis_match_context_artifacts_artifact_id_scope_key_match_id_pk",
+          "columns": [
+            "artifact_id",
+            "scope_key",
+            "match_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_match_context_artifacts_scope_check": {
+          "name": "series_analysis_match_context_artifacts_scope_check",
+          "value": "(\"series_analysis_match_context_artifacts\".\"scope_kind\" = 'overall' AND \"series_analysis_match_context_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_match_context_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_match_context_artifacts\".\"scope_key\" = 'overall') OR (\"series_analysis_match_context_artifacts\".\"scope_kind\" = 'season' AND \"series_analysis_match_context_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_match_context_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_match_context_artifacts\".\"scope_key\" = 'season:' || \"series_analysis_match_context_artifacts\".\"season_master_id\") OR (\"series_analysis_match_context_artifacts\".\"scope_kind\" = 'map' AND \"series_analysis_match_context_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_match_context_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_match_context_artifacts\".\"scope_key\" = 'map:' || \"series_analysis_match_context_artifacts\".\"map_master_id\") OR (\"series_analysis_match_context_artifacts\".\"scope_kind\" = 'season_map' AND \"series_analysis_match_context_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_match_context_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_match_context_artifacts\".\"scope_key\" = 'season_map:' || \"series_analysis_match_context_artifacts\".\"season_master_id\" || ':' || \"series_analysis_match_context_artifacts\".\"map_master_id\")"
+        },
+        "series_analysis_match_context_artifacts_chunk_check": {
+          "name": "series_analysis_match_context_artifacts_chunk_check",
+          "value": "\"series_analysis_match_context_artifacts\".\"encoded_bytes\" >= 2 AND \"series_analysis_match_context_artifacts\".\"encoded_bytes\" = octet_length(\"series_analysis_match_context_artifacts\".\"payload\") AND \"series_analysis_match_context_artifacts\".\"decoded_bytes\" = \"series_analysis_match_context_artifacts\".\"encoded_bytes\" AND \"series_analysis_match_context_artifacts\".\"item_count\" >= 0 AND \"series_analysis_match_context_artifacts\".\"nesting_depth\" BETWEEN 1 AND 64 AND \"series_analysis_match_context_artifacts\".\"checksum\" ~ '^sha256:[0-9a-f]{64}$'"
+        },
+        "series_analysis_match_context_artifacts_revision_check": {
+          "name": "series_analysis_match_context_artifacts_revision_check",
+          "value": "\"series_analysis_match_context_artifacts\".\"source_match_revision\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_operation_requests": {
+      "name": "series_analysis_operation_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by_account_id": {
+          "name": "requested_by_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_key_hash": {
+          "name": "idempotency_key_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "endpoint": {
+          "name": "endpoint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "target_count": {
+          "name": "target_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "series_analysis_operation_requests_idempotency_unique": {
+          "name": "series_analysis_operation_requests_idempotency_unique",
+          "columns": [
+            {
+              "expression": "requested_by_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "endpoint",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_operation_requests_terminal_cleanup_idx": {
+          "name": "series_analysis_operation_requests_terminal_cleanup_idx",
+          "columns": [
+            {
+              "expression": "finished_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_operation_requests\".\"status\" = 'terminal'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_operation_requests_requested_by_account_id_momo_login_accounts_id_fk": {
+          "name": "series_analysis_operation_requests_requested_by_account_id_momo_login_accounts_id_fk",
+          "tableFrom": "series_analysis_operation_requests",
+          "tableTo": "momo_login_accounts",
+          "columnsFrom": [
+            "requested_by_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_operation_requests_scope_check": {
+          "name": "series_analysis_operation_requests_scope_check",
+          "value": "\"series_analysis_operation_requests\".\"scope\" IN ('title','all_titles')"
+        },
+        "series_analysis_operation_requests_scope_title_check": {
+          "name": "series_analysis_operation_requests_scope_title_check",
+          "value": "(\"series_analysis_operation_requests\".\"scope\" = 'title' AND \"series_analysis_operation_requests\".\"game_title_id\" IS NOT NULL) OR (\"series_analysis_operation_requests\".\"scope\" = 'all_titles' AND \"series_analysis_operation_requests\".\"game_title_id\" IS NULL)"
+        },
+        "series_analysis_operation_requests_status_check": {
+          "name": "series_analysis_operation_requests_status_check",
+          "value": "\"series_analysis_operation_requests\".\"status\" IN ('pending','running','terminal')"
+        },
+        "series_analysis_operation_requests_target_count_check": {
+          "name": "series_analysis_operation_requests_target_count_check",
+          "value": "\"series_analysis_operation_requests\".\"target_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_queue_outbox": {
+      "name": "series_analysis_queue_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claim_expires_at": {
+          "name": "claim_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "redis_message_id": {
+          "name": "redis_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "series_analysis_queue_outbox_dispatch_idx": {
+          "name": "series_analysis_queue_outbox_dispatch_idx",
+          "columns": [
+            {
+              "expression": "next_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_queue_outbox\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "series_analysis_queue_outbox_job_idx": {
+          "name": "series_analysis_queue_outbox_job_idx",
+          "columns": [
+            {
+              "expression": "job_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_queue_outbox_job_id_series_analysis_jobs_id_fk": {
+          "name": "series_analysis_queue_outbox_job_id_series_analysis_jobs_id_fk",
+          "tableFrom": "series_analysis_queue_outbox",
+          "tableTo": "series_analysis_jobs",
+          "columnsFrom": [
+            "job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "series_analysis_queue_outbox_dedupe_key_unique": {
+          "name": "series_analysis_queue_outbox_dedupe_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "dedupe_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_queue_outbox_schema_version_check": {
+          "name": "series_analysis_queue_outbox_schema_version_check",
+          "value": "\"series_analysis_queue_outbox\".\"schema_version\" = 1"
+        },
+        "series_analysis_queue_outbox_status_check": {
+          "name": "series_analysis_queue_outbox_status_check",
+          "value": "\"series_analysis_queue_outbox\".\"status\" IN ('pending','in_flight','delivered','failed')"
+        },
+        "series_analysis_queue_outbox_attempt_count_check": {
+          "name": "series_analysis_queue_outbox_attempt_count_check",
+          "value": "\"series_analysis_queue_outbox\".\"attempt_count\" BETWEEN 0 AND 3"
+        },
+        "series_analysis_queue_outbox_claim_shape_check": {
+          "name": "series_analysis_queue_outbox_claim_shape_check",
+          "value": "(\"series_analysis_queue_outbox\".\"status\" = 'in_flight') = (\"series_analysis_queue_outbox\".\"claim_expires_at\" IS NOT NULL)"
+        },
+        "series_analysis_queue_outbox_delivery_shape_check": {
+          "name": "series_analysis_queue_outbox_delivery_shape_check",
+          "value": "(\"series_analysis_queue_outbox\".\"status\" = 'delivered') = (\"series_analysis_queue_outbox\".\"delivered_at\" IS NOT NULL AND \"series_analysis_queue_outbox\".\"redis_message_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_reader_capabilities": {
+      "name": "series_analysis_reader_capabilities",
+      "schema": "",
+      "columns": {
+        "reader_id": {
+          "name": "reader_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "artifact_schema_versions": {
+          "name": "artifact_schema_versions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "draining": {
+          "name": "draining",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "series_analysis_reader_capabilities_heartbeat_idx": {
+          "name": "series_analysis_reader_capabilities_heartbeat_idx",
+          "columns": [
+            {
+              "expression": "heartbeat_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_reader_capabilities_schemas_array_check": {
+          "name": "series_analysis_reader_capabilities_schemas_array_check",
+          "value": "jsonb_typeof(\"series_analysis_reader_capabilities\".\"artifact_schema_versions\") = 'array'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_scope_aggregate_artifacts": {
+      "name": "series_analysis_scope_aggregate_artifacts",
+      "schema": "",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_kind": {
+          "name": "scope_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "season_master_id": {
+          "name": "season_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_master_id": {
+          "name": "map_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encoded_bytes": {
+          "name": "encoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_bytes": {
+          "name": "decoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nesting_depth": {
+          "name": "nesting_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "series_analysis_scope_aggregate_artifacts_artifact_id_series_analysis_artifacts_id_fk": {
+          "name": "series_analysis_scope_aggregate_artifacts_artifact_id_series_analysis_artifacts_id_fk",
+          "tableFrom": "series_analysis_scope_aggregate_artifacts",
+          "tableTo": "series_analysis_artifacts",
+          "columnsFrom": [
+            "artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "series_analysis_scope_aggregate_artifacts_artifact_id_scope_key_pk": {
+          "name": "series_analysis_scope_aggregate_artifacts_artifact_id_scope_key_pk",
+          "columns": [
+            "artifact_id",
+            "scope_key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_scope_aggregate_artifacts_scope_check": {
+          "name": "series_analysis_scope_aggregate_artifacts_scope_check",
+          "value": "(\"series_analysis_scope_aggregate_artifacts\".\"scope_kind\" = 'overall' AND \"series_analysis_scope_aggregate_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_scope_aggregate_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_scope_aggregate_artifacts\".\"scope_key\" = 'overall') OR (\"series_analysis_scope_aggregate_artifacts\".\"scope_kind\" = 'season' AND \"series_analysis_scope_aggregate_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_scope_aggregate_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_scope_aggregate_artifacts\".\"scope_key\" = 'season:' || \"series_analysis_scope_aggregate_artifacts\".\"season_master_id\") OR (\"series_analysis_scope_aggregate_artifacts\".\"scope_kind\" = 'map' AND \"series_analysis_scope_aggregate_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_scope_aggregate_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_scope_aggregate_artifacts\".\"scope_key\" = 'map:' || \"series_analysis_scope_aggregate_artifacts\".\"map_master_id\") OR (\"series_analysis_scope_aggregate_artifacts\".\"scope_kind\" = 'season_map' AND \"series_analysis_scope_aggregate_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_scope_aggregate_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_scope_aggregate_artifacts\".\"scope_key\" = 'season_map:' || \"series_analysis_scope_aggregate_artifacts\".\"season_master_id\" || ':' || \"series_analysis_scope_aggregate_artifacts\".\"map_master_id\")"
+        },
+        "series_analysis_scope_aggregate_artifacts_chunk_check": {
+          "name": "series_analysis_scope_aggregate_artifacts_chunk_check",
+          "value": "\"series_analysis_scope_aggregate_artifacts\".\"encoded_bytes\" >= 2 AND \"series_analysis_scope_aggregate_artifacts\".\"encoded_bytes\" = octet_length(\"series_analysis_scope_aggregate_artifacts\".\"payload\") AND \"series_analysis_scope_aggregate_artifacts\".\"decoded_bytes\" = \"series_analysis_scope_aggregate_artifacts\".\"encoded_bytes\" AND \"series_analysis_scope_aggregate_artifacts\".\"item_count\" >= 0 AND \"series_analysis_scope_aggregate_artifacts\".\"nesting_depth\" BETWEEN 1 AND 64 AND \"series_analysis_scope_aggregate_artifacts\".\"checksum\" ~ '^sha256:[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_scope_review_artifacts": {
+      "name": "series_analysis_scope_review_artifacts",
+      "schema": "",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_kind": {
+          "name": "scope_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "season_master_id": {
+          "name": "season_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_master_id": {
+          "name": "map_master_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encoded_bytes": {
+          "name": "encoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_bytes": {
+          "name": "decoded_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nesting_depth": {
+          "name": "nesting_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "series_analysis_scope_review_artifacts_artifact_id_series_analysis_artifacts_id_fk": {
+          "name": "series_analysis_scope_review_artifacts_artifact_id_series_analysis_artifacts_id_fk",
+          "tableFrom": "series_analysis_scope_review_artifacts",
+          "tableTo": "series_analysis_artifacts",
+          "columnsFrom": [
+            "artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "series_analysis_scope_review_artifacts_artifact_id_scope_key_pk": {
+          "name": "series_analysis_scope_review_artifacts_artifact_id_scope_key_pk",
+          "columns": [
+            "artifact_id",
+            "scope_key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_scope_review_artifacts_scope_check": {
+          "name": "series_analysis_scope_review_artifacts_scope_check",
+          "value": "(\"series_analysis_scope_review_artifacts\".\"scope_kind\" = 'overall' AND \"series_analysis_scope_review_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_scope_review_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_scope_review_artifacts\".\"scope_key\" = 'overall') OR (\"series_analysis_scope_review_artifacts\".\"scope_kind\" = 'season' AND \"series_analysis_scope_review_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_scope_review_artifacts\".\"map_master_id\" IS NULL AND \"series_analysis_scope_review_artifacts\".\"scope_key\" = 'season:' || \"series_analysis_scope_review_artifacts\".\"season_master_id\") OR (\"series_analysis_scope_review_artifacts\".\"scope_kind\" = 'map' AND \"series_analysis_scope_review_artifacts\".\"season_master_id\" IS NULL AND \"series_analysis_scope_review_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_scope_review_artifacts\".\"scope_key\" = 'map:' || \"series_analysis_scope_review_artifacts\".\"map_master_id\") OR (\"series_analysis_scope_review_artifacts\".\"scope_kind\" = 'season_map' AND \"series_analysis_scope_review_artifacts\".\"season_master_id\" IS NOT NULL AND \"series_analysis_scope_review_artifacts\".\"map_master_id\" IS NOT NULL AND \"series_analysis_scope_review_artifacts\".\"scope_key\" = 'season_map:' || \"series_analysis_scope_review_artifacts\".\"season_master_id\" || ':' || \"series_analysis_scope_review_artifacts\".\"map_master_id\")"
+        },
+        "series_analysis_scope_review_artifacts_chunk_check": {
+          "name": "series_analysis_scope_review_artifacts_chunk_check",
+          "value": "\"series_analysis_scope_review_artifacts\".\"encoded_bytes\" >= 2 AND \"series_analysis_scope_review_artifacts\".\"encoded_bytes\" = octet_length(\"series_analysis_scope_review_artifacts\".\"payload\") AND \"series_analysis_scope_review_artifacts\".\"decoded_bytes\" = \"series_analysis_scope_review_artifacts\".\"encoded_bytes\" AND \"series_analysis_scope_review_artifacts\".\"item_count\" >= 0 AND \"series_analysis_scope_review_artifacts\".\"nesting_depth\" BETWEEN 1 AND 64 AND \"series_analysis_scope_review_artifacts\".\"checksum\" ~ '^sha256:[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_title_states": {
+      "name": "series_analysis_title_states",
+      "schema": "",
+      "columns": {
+        "game_title_id": {
+          "name": "game_title_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "input_revision": {
+          "name": "input_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        },
+        "algorithm_version": {
+          "name": "algorithm_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'series-analysis-v1'"
+        },
+        "artifact_schema_version": {
+          "name": "artifact_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "pending_work": {
+          "name": "pending_work",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "pending_forced_run_count": {
+          "name": "pending_forced_run_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_failure_code": {
+          "name": "last_failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_failure_at": {
+          "name": "last_failure_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_artifact_id": {
+          "name": "current_artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "previous_artifact_id": {
+          "name": "previous_artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "series_analysis_title_states_pending_work_idx": {
+          "name": "series_analysis_title_states_pending_work_idx",
+          "columns": [
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"series_analysis_title_states\".\"pending_work\" = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "series_analysis_title_states_game_title_id_game_titles_id_fk": {
+          "name": "series_analysis_title_states_game_title_id_game_titles_id_fk",
+          "tableFrom": "series_analysis_title_states",
+          "tableTo": "game_titles",
+          "columnsFrom": [
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "series_analysis_title_states_current_artifact_fk": {
+          "name": "series_analysis_title_states_current_artifact_fk",
+          "tableFrom": "series_analysis_title_states",
+          "tableTo": "series_analysis_artifacts",
+          "columnsFrom": [
+            "current_artifact_id",
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id",
+            "game_title_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "series_analysis_title_states_previous_artifact_fk": {
+          "name": "series_analysis_title_states_previous_artifact_fk",
+          "tableFrom": "series_analysis_title_states",
+          "tableTo": "series_analysis_artifacts",
+          "columnsFrom": [
+            "previous_artifact_id",
+            "game_title_id"
+          ],
+          "columnsTo": [
+            "id",
+            "game_title_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_title_states_input_revision_check": {
+          "name": "series_analysis_title_states_input_revision_check",
+          "value": "\"series_analysis_title_states\".\"input_revision\" >= 0"
+        },
+        "series_analysis_title_states_schema_version_check": {
+          "name": "series_analysis_title_states_schema_version_check",
+          "value": "\"series_analysis_title_states\".\"artifact_schema_version\" >= 1"
+        },
+        "series_analysis_title_states_pending_forced_run_count_check": {
+          "name": "series_analysis_title_states_pending_forced_run_count_check",
+          "value": "\"series_analysis_title_states\".\"pending_forced_run_count\" >= 0"
+        },
+        "series_analysis_title_states_failure_pair_check": {
+          "name": "series_analysis_title_states_failure_pair_check",
+          "value": "(\"series_analysis_title_states\".\"last_failure_code\" IS NULL) = (\"series_analysis_title_states\".\"last_failure_at\" IS NULL)"
+        },
+        "series_analysis_title_states_artifact_pointer_distinct_check": {
+          "name": "series_analysis_title_states_artifact_pointer_distinct_check",
+          "value": "\"series_analysis_title_states\".\"current_artifact_id\" IS NULL OR \"series_analysis_title_states\".\"previous_artifact_id\" IS NULL OR \"series_analysis_title_states\".\"current_artifact_id\" <> \"series_analysis_title_states\".\"previous_artifact_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.series_analysis_worker_capabilities": {
+      "name": "series_analysis_worker_capabilities",
+      "schema": "",
+      "columns": {
+        "worker_id": {
+          "name": "worker_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "algorithm_versions": {
+          "name": "algorithm_versions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_schema_versions": {
+          "name": "artifact_schema_versions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "draining": {
+          "name": "draining",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "series_analysis_worker_capabilities_heartbeat_idx": {
+          "name": "series_analysis_worker_capabilities_heartbeat_idx",
+          "columns": [
+            {
+              "expression": "heartbeat_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "series_analysis_worker_capabilities_algorithms_array_check": {
+          "name": "series_analysis_worker_capabilities_algorithms_array_check",
+          "value": "jsonb_typeof(\"series_analysis_worker_capabilities\".\"algorithm_versions\") = 'array'"
+        },
+        "series_analysis_worker_capabilities_schemas_array_check": {
+          "name": "series_analysis_worker_capabilities_schemas_array_check",
+          "value": "jsonb_typeof(\"series_analysis_worker_capabilities\".\"artifact_schema_versions\") = 'array'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.sessions": {
+      "name": "sessions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "week_key": {
+          "name": "week_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "postpone_count": {
+          "name": "postpone_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "candidate_date_iso": {
+          "name": "candidate_date_iso",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ask_message_id": {
+          "name": "ask_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "postpone_message_id": {
+          "name": "postpone_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deadline_at": {
+          "name": "deadline_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decided_start_at": {
+          "name": "decided_start_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancel_reason": {
+          "name": "cancel_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reminder_at": {
+          "name": "reminder_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reminder_sent_at": {
+          "name": "reminder_sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sessions_week_key_postpone_count_unique": {
+          "name": "sessions_week_key_postpone_count_unique",
+          "columns": [
+            {
+              "expression": "week_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "postpone_count",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_sessions_status_deadline": {
+          "name": "idx_sessions_status_deadline",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "deadline_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_sessions_status_reminder": {
+          "name": "idx_sessions_status_reminder",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reminder_sent_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reminder_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "sessions_status_check": {
+          "name": "sessions_status_check",
+          "value": "\"sessions\".\"status\" IN ('ASKING','POSTPONE_VOTING','POSTPONED','DECIDED','CANCELLED','COMPLETED','SKIPPED')"
+        },
+        "sessions_postpone_count_check": {
+          "name": "sessions_postpone_count_check",
+          "value": "\"sessions\".\"postpone_count\" IN (0, 1)"
+        },
+        "sessions_revision_check": {
+          "name": "sessions_revision_check",
+          "value": "\"sessions\".\"revision\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worker_execution_slots": {
+      "name": "worker_execution_slots",
+      "schema": "",
+      "columns": {
+        "slot_key": {
+          "name": "slot_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "task_kind": {
+          "name": "task_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "holder_preemptible": {
+          "name": "holder_preemptible",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fencing_token": {
+          "name": "fencing_token",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        },
+        "preempt_requested_by": {
+          "name": "preempt_requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "preempt_requested_at": {
+          "name": "preempt_requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worker_execution_slots_key_check": {
+          "name": "worker_execution_slots_key_check",
+          "value": "\"worker_execution_slots\".\"slot_key\" = 'shared-heavy-work'"
+        },
+        "worker_execution_slots_task_kind_check": {
+          "name": "worker_execution_slots_task_kind_check",
+          "value": "\"worker_execution_slots\".\"task_kind\" IS NULL OR \"worker_execution_slots\".\"task_kind\" IN ('analysis','ocr')"
+        },
+        "worker_execution_slots_holder_shape_check": {
+          "name": "worker_execution_slots_holder_shape_check",
+          "value": "(\"worker_execution_slots\".\"owner\" IS NULL AND \"worker_execution_slots\".\"task_kind\" IS NULL AND \"worker_execution_slots\".\"job_id\" IS NULL AND \"worker_execution_slots\".\"attempt_id\" IS NULL AND \"worker_execution_slots\".\"holder_preemptible\" IS NULL AND \"worker_execution_slots\".\"lease_expires_at\" IS NULL) OR (\"worker_execution_slots\".\"owner\" IS NOT NULL AND \"worker_execution_slots\".\"task_kind\" IS NOT NULL AND \"worker_execution_slots\".\"job_id\" IS NOT NULL AND \"worker_execution_slots\".\"attempt_id\" IS NOT NULL AND \"worker_execution_slots\".\"holder_preemptible\" IS NOT NULL AND \"worker_execution_slots\".\"lease_expires_at\" IS NOT NULL)"
+        },
+        "worker_execution_slots_preempt_shape_check": {
+          "name": "worker_execution_slots_preempt_shape_check",
+          "value": "(\"worker_execution_slots\".\"preempt_requested_by\" IS NULL) = (\"worker_execution_slots\".\"preempt_requested_at\" IS NULL)"
+        },
+        "worker_execution_slots_fencing_token_check": {
+          "name": "worker_execution_slots_fencing_token_check",
+          "value": "\"worker_execution_slots\".\"fencing_token\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

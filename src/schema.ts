@@ -4,6 +4,7 @@ import {
   check,
   customType,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -17,6 +18,7 @@ import {
   uuid,
   varchar
 } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
@@ -735,7 +737,12 @@ export const matches = pgTable(
       .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
-      .defaultNow()
+      .defaultNow(),
+    // source-of-truth: this confirmed match's analysis-input version. It advances with every
+    // mutation that can change a match-context artifact.
+    analysisRevision: bigint("analysis_revision", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`)
   },
   (table) => [
     uniqueIndex("matches_event_match_no_unique").on(
@@ -746,11 +753,826 @@ export const matches = pgTable(
       "matches_match_no_in_event_check",
       sql`${table.matchNoInEvent} >= 1`
     ),
+    check(
+      "matches_analysis_revision_check",
+      sql`${table.analysisRevision} >= 0`
+    ),
     index("matches_held_event_id_idx").on(table.heldEventId),
     index("matches_created_by_account_id_idx").on(table.createdByAccountId),
     index("matches_played_at_idx").on(table.playedAt)
   ]
 );
+
+// source-of-truth: desired and published analysis state for every registered game title.
+// A row is inserted with game_titles and existing titles are backfilled by the introducing migration.
+export const seriesAnalysisTitleStates = pgTable(
+  "series_analysis_title_states",
+  {
+    gameTitleId: text("game_title_id")
+      .primaryKey()
+      .references(() => gameTitles.id, { onDelete: "cascade" }),
+    inputRevision: bigint("input_revision", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    algorithmVersion: text("algorithm_version")
+      .notNull()
+      .default("series-analysis-v1"),
+    artifactSchemaVersion: integer("artifact_schema_version")
+      .notNull()
+      .default(1),
+    pendingWork: boolean("pending_work").notNull().default(false),
+    pendingForcedRunCount: integer("pending_forced_run_count")
+      .notNull()
+      .default(0),
+    lastFailureCode: text("last_failure_code"),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    currentArtifactId: text("current_artifact_id"),
+    previousArtifactId: text("previous_artifact_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "series_analysis_title_states_input_revision_check",
+      sql`${table.inputRevision} >= 0`
+    ),
+    check(
+      "series_analysis_title_states_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    check(
+      "series_analysis_title_states_pending_forced_run_count_check",
+      sql`${table.pendingForcedRunCount} >= 0`
+    ),
+    check(
+      "series_analysis_title_states_failure_pair_check",
+      sql`(${table.lastFailureCode} IS NULL) = (${table.lastFailureAt} IS NULL)`
+    ),
+    check(
+      "series_analysis_title_states_artifact_pointer_distinct_check",
+      sql`${table.currentArtifactId} IS NULL OR ${table.previousArtifactId} IS NULL OR ${table.currentArtifactId} <> ${table.previousArtifactId}`
+    ),
+    foreignKey({
+      columns: [table.currentArtifactId, table.gameTitleId],
+      foreignColumns: [
+        seriesAnalysisArtifacts.id,
+        seriesAnalysisArtifacts.gameTitleId
+      ],
+      name: "series_analysis_title_states_current_artifact_fk"
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [table.previousArtifactId, table.gameTitleId],
+      foreignColumns: [
+        seriesAnalysisArtifacts.id,
+        seriesAnalysisArtifacts.gameTitleId
+      ],
+      name: "series_analysis_title_states_previous_artifact_fk"
+    }).onDelete("restrict"),
+    index("series_analysis_title_states_pending_work_idx")
+      .on(table.updatedAt)
+      .where(sql`${table.pendingWork} = true`)
+  ]
+);
+
+export const seriesAnalysisOperationRequests = pgTable(
+  "series_analysis_operation_requests",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope").notNull(),
+    gameTitleId: text("game_title_id"),
+    requestedByAccountId: text("requested_by_account_id").references(
+      () => momoLoginAccounts.id,
+      { onDelete: "set null" }
+    ),
+    idempotencyKeyHash: text("idempotency_key_hash").notNull(),
+    endpoint: text("endpoint").notNull(),
+    status: text("status").notNull().default("pending"),
+    targetCount: integer("target_count").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true })
+  },
+  (table) => [
+    check(
+      "series_analysis_operation_requests_scope_check",
+      sql`${table.scope} IN ('title','all_titles')`
+    ),
+    check(
+      "series_analysis_operation_requests_scope_title_check",
+      sql`(${table.scope} = 'title' AND ${table.gameTitleId} IS NOT NULL) OR (${table.scope} = 'all_titles' AND ${table.gameTitleId} IS NULL)`
+    ),
+    check(
+      "series_analysis_operation_requests_status_check",
+      sql`${table.status} IN ('pending','running','terminal')`
+    ),
+    check(
+      "series_analysis_operation_requests_target_count_check",
+      sql`${table.targetCount} >= 0`
+    ),
+    uniqueIndex("series_analysis_operation_requests_idempotency_unique").on(
+      table.requestedByAccountId,
+      table.endpoint,
+      table.idempotencyKeyHash
+    ),
+    index("series_analysis_operation_requests_terminal_cleanup_idx")
+      .on(table.finishedAt)
+      .where(sql`${table.status} = 'terminal'`)
+  ]
+);
+
+export const seriesAnalysisCampaigns = pgTable(
+  "series_analysis_campaigns",
+  {
+    id: text("id").primaryKey(),
+    operationRequestId: text("operation_request_id")
+      .notNull()
+      .unique()
+      .references(() => seriesAnalysisOperationRequests.id, {
+        onDelete: "cascade"
+      }),
+    trigger: text("trigger").notNull(),
+    algorithmVersion: text("algorithm_version").notNull(),
+    artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    status: text("status").notNull().default("queued"),
+    targetCount: integer("target_count").notNull(),
+    expandedCount: integer("expanded_count").notNull().default(0),
+    terminalCount: integer("terminal_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    skippedCount: integer("skipped_count").notNull().default(0),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true })
+  },
+  (table) => [
+    check(
+      "series_analysis_campaigns_trigger_check",
+      sql`${table.trigger} IN ('manual','algorithm_update','artifact_schema_update','initial_backfill')`
+    ),
+    check(
+      "series_analysis_campaigns_status_check",
+      sql`${table.status} IN ('queued','expanding','running','terminal')`
+    ),
+    check(
+      "series_analysis_campaigns_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    check(
+      "series_analysis_campaigns_counts_check",
+      sql`${table.targetCount} >= 0 AND ${table.expandedCount} >= 0 AND ${table.terminalCount} >= 0 AND ${table.failedCount} >= 0 AND ${table.skippedCount} >= 0 AND ${table.expandedCount} <= ${table.targetCount} AND ${table.terminalCount} <= ${table.targetCount} AND ${table.failedCount} + ${table.skippedCount} <= ${table.terminalCount}`
+    ),
+    index("series_analysis_campaigns_status_accepted_idx").on(
+      table.status,
+      table.acceptedAt
+    ),
+    index("series_analysis_campaigns_terminal_cleanup_idx")
+      .on(table.finishedAt)
+      .where(sql`${table.status} = 'terminal'`)
+  ]
+);
+
+export const seriesAnalysisCampaignTargets = pgTable(
+  "series_analysis_campaign_targets",
+  {
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => seriesAnalysisCampaigns.id, { onDelete: "cascade" }),
+    gameTitleId: text("game_title_id").notNull(),
+    inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
+    algorithmVersion: text("algorithm_version")
+      .notNull()
+      .default("series-analysis-v1"),
+    artifactSchemaVersion: integer("artifact_schema_version")
+      .notNull()
+      .default(1),
+    status: text("status").notNull().default("pending"),
+    jobRequestId: text("job_request_id"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    primaryKey({ columns: [table.campaignId, table.gameTitleId] }),
+    check(
+      "series_analysis_campaign_targets_input_revision_check",
+      sql`${table.inputRevision} >= 0`
+    ),
+    check(
+      "series_analysis_campaign_targets_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    check(
+      "series_analysis_campaign_targets_status_check",
+      sql`${table.status} IN ('pending','expanded','running','succeeded','failed','skipped_title_deleted')`
+    ),
+    index("series_analysis_campaign_targets_pending_idx")
+      .on(table.acceptedAt, table.campaignId, table.gameTitleId)
+      .where(sql`${table.status} = 'pending'`),
+    uniqueIndex("series_analysis_campaign_targets_job_request_unique")
+      .on(table.jobRequestId)
+      .where(sql`${table.jobRequestId} IS NOT NULL`)
+  ]
+);
+
+export const seriesAnalysisJobs = pgTable(
+  "series_analysis_jobs",
+  {
+    id: text("id").primaryKey(),
+    gameTitleId: text("game_title_id")
+      .notNull()
+      .references(() => gameTitles.id, { onDelete: "cascade" }),
+    inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
+    algorithmVersion: text("algorithm_version").notNull(),
+    artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    status: text("status").notNull().default("queued"),
+    trigger: text("trigger").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    availableAt: timestamp("available_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    leaseOwner: text("lease_owner"),
+    leaseAttemptId: text("lease_attempt_id"),
+    leaseFencingToken: bigint("lease_fencing_token", { mode: "bigint" }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    transientRetryCount: integer("transient_retry_count").notNull().default(0),
+    leaseRecoveryCount: integer("lease_recovery_count").notNull().default(0),
+    resultDisposition: text("result_disposition").notNull().default("none"),
+    outputChecksum: text("output_checksum"),
+    safeFailureCode: text("safe_failure_code"),
+    elapsedMilliseconds: bigint("elapsed_milliseconds", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "series_analysis_jobs_input_revision_check",
+      sql`${table.inputRevision} >= 0`
+    ),
+    check(
+      "series_analysis_jobs_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    check(
+      "series_analysis_jobs_status_check",
+      sql`${table.status} IN ('queued','running','succeeded','failed','timed_out')`
+    ),
+    check(
+      "series_analysis_jobs_trigger_check",
+      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','initial_backfill','match_mutation')`
+    ),
+    check(
+      "series_analysis_jobs_counts_check",
+      sql`${table.attemptCount} >= 0 AND ${table.transientRetryCount} BETWEEN 0 AND 3 AND ${table.leaseRecoveryCount} BETWEEN 0 AND 3`
+    ),
+    check(
+      "series_analysis_jobs_result_disposition_check",
+      sql`${table.resultDisposition} IN ('published','reused','none')`
+    ),
+    check(
+      "series_analysis_jobs_lease_shape_check",
+      sql`(${table.status} = 'running' AND ${table.leaseOwner} IS NOT NULL AND ${table.leaseAttemptId} IS NOT NULL AND ${table.leaseFencingToken} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL) OR (${table.status} <> 'running' AND ${table.leaseOwner} IS NULL AND ${table.leaseAttemptId} IS NULL AND ${table.leaseFencingToken} IS NULL AND ${table.leaseExpiresAt} IS NULL)`
+    ),
+    check(
+      "series_analysis_jobs_terminal_shape_check",
+      sql`(${table.status} IN ('succeeded','failed','timed_out')) = (${table.finishedAt} IS NOT NULL)`
+    ),
+    uniqueIndex("series_analysis_jobs_active_title_unique")
+      .on(table.gameTitleId)
+      .where(sql`${table.status} IN ('queued','running')`),
+    index("series_analysis_jobs_claim_idx")
+      .on(table.availableAt, table.requestedAt, table.id)
+      .where(sql`${table.status} = 'queued'`),
+    index("series_analysis_jobs_terminal_cleanup_idx")
+      .on(table.finishedAt)
+      .where(sql`${table.status} IN ('succeeded','failed','timed_out')`)
+  ]
+);
+
+export const seriesAnalysisJobRequests = pgTable(
+  "series_analysis_job_requests",
+  {
+    id: text("id").primaryKey(),
+    gameTitleId: text("game_title_id").notNull(),
+    operationRequestId: text("operation_request_id").references(
+      () => seriesAnalysisOperationRequests.id,
+      { onDelete: "cascade" }
+    ),
+    campaignId: text("campaign_id").references(() => seriesAnalysisCampaigns.id, {
+      onDelete: "cascade"
+    }),
+    inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
+    algorithmVersion: text("algorithm_version").notNull(),
+    artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    trigger: text("trigger").notNull(),
+    forceRun: boolean("force_run").notNull().default(false),
+    status: text("status").notNull().default("pending"),
+    assignedJobId: text("assigned_job_id").references(() => seriesAnalysisJobs.id, {
+      onDelete: "set null"
+    }),
+    assignedAttemptId: text("assigned_attempt_id"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    fulfilledAt: timestamp("fulfilled_at", { withTimezone: true })
+  },
+  (table) => [
+    check(
+      "series_analysis_job_requests_input_revision_check",
+      sql`${table.inputRevision} >= 0`
+    ),
+    check(
+      "series_analysis_job_requests_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    check(
+      "series_analysis_job_requests_status_check",
+      sql`${table.status} IN ('pending','assigned','fulfilled')`
+    ),
+    check(
+      "series_analysis_job_requests_trigger_check",
+      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','initial_backfill','match_mutation')`
+    ),
+    check(
+      "series_analysis_job_requests_fulfilled_shape_check",
+      sql`(${table.status} = 'fulfilled') = (${table.fulfilledAt} IS NOT NULL)`
+    ),
+    index("series_analysis_job_requests_pending_title_idx")
+      .on(table.gameTitleId, table.acceptedAt, table.id)
+      .where(sql`${table.status} IN ('pending','assigned')`),
+    index("series_analysis_job_requests_attempt_idx")
+      .on(table.assignedAttemptId)
+      .where(sql`${table.assignedAttemptId} IS NOT NULL`),
+    index("series_analysis_job_requests_terminal_cleanup_idx")
+      .on(table.fulfilledAt)
+      .where(sql`${table.status} = 'fulfilled'`)
+  ]
+);
+
+export const seriesAnalysisJobAttempts = pgTable(
+  "series_analysis_job_attempts",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => seriesAnalysisJobs.id, { onDelete: "cascade" }),
+    attemptNo: integer("attempt_no").notNull(),
+    owner: text("owner").notNull(),
+    fencingToken: bigint("fencing_token", { mode: "bigint" }).notNull(),
+    inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
+    algorithmVersion: text("algorithm_version").notNull(),
+    artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    status: text("status").notNull().default("running"),
+    outcome: text("outcome"),
+    effectiveConfigVersion: text("effective_config_version").notNull(),
+    calculationTimeoutMilliseconds: bigint("calculation_timeout_milliseconds", {
+      mode: "bigint"
+    }).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    elapsedMilliseconds: bigint("elapsed_milliseconds", { mode: "bigint" }),
+    calculationMilliseconds: bigint("calculation_milliseconds", {
+      mode: "bigint"
+    }),
+    stagingMilliseconds: bigint("staging_milliseconds", { mode: "bigint" }),
+    publicationMilliseconds: bigint("publication_milliseconds", {
+      mode: "bigint"
+    }),
+    childPeakBytes: bigint("child_peak_bytes", { mode: "bigint" }),
+    workerPeakBytes: bigint("worker_peak_bytes", { mode: "bigint" })
+  },
+  (table) => [
+    uniqueIndex("series_analysis_job_attempts_job_no_unique").on(
+      table.jobId,
+      table.attemptNo
+    ),
+    check(
+      "series_analysis_job_attempts_positive_check",
+      sql`${table.attemptNo} >= 1 AND ${table.fencingToken} >= 1 AND ${table.inputRevision} >= 0 AND ${table.artifactSchemaVersion} >= 1 AND ${table.calculationTimeoutMilliseconds} >= 1`
+    ),
+    check(
+      "series_analysis_job_attempts_status_check",
+      sql`${table.status} IN ('running','terminal')`
+    ),
+    check(
+      "series_analysis_job_attempts_terminal_shape_check",
+      sql`(${table.status} = 'terminal' AND ${table.outcome} IS NOT NULL AND ${table.finishedAt} IS NOT NULL) OR (${table.status} = 'running' AND ${table.outcome} IS NULL AND ${table.finishedAt} IS NULL)`
+    ),
+    check(
+      "series_analysis_job_attempts_outcome_check",
+      sql`${table.outcome} IS NULL OR ${table.outcome} IN ('succeeded','failed','timed_out','superseded','preempted','owner_lost','graceful_stop')`
+    ),
+    index("series_analysis_job_attempts_running_idx")
+      .on(table.startedAt)
+      .where(sql`${table.status} = 'running'`)
+  ]
+);
+
+export const seriesAnalysisWorkerCapabilities = pgTable(
+  "series_analysis_worker_capabilities",
+  {
+    workerId: text("worker_id").primaryKey(),
+    algorithmVersions: jsonb("algorithm_versions").notNull(),
+    artifactSchemaVersions: jsonb("artifact_schema_versions").notNull(),
+    draining: boolean("draining").notNull().default(false),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "series_analysis_worker_capabilities_algorithms_array_check",
+      sql`jsonb_typeof(${table.algorithmVersions}) = 'array'`
+    ),
+    check(
+      "series_analysis_worker_capabilities_schemas_array_check",
+      sql`jsonb_typeof(${table.artifactSchemaVersions}) = 'array'`
+    ),
+    index("series_analysis_worker_capabilities_heartbeat_idx").on(
+      table.heartbeatAt
+    )
+  ]
+);
+
+export const seriesAnalysisReaderCapabilities = pgTable(
+  "series_analysis_reader_capabilities",
+  {
+    readerId: text("reader_id").primaryKey(),
+    artifactSchemaVersions: jsonb("artifact_schema_versions").notNull(),
+    draining: boolean("draining").notNull().default(false),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "series_analysis_reader_capabilities_schemas_array_check",
+      sql`jsonb_typeof(${table.artifactSchemaVersions}) = 'array'`
+    ),
+    index("series_analysis_reader_capabilities_heartbeat_idx").on(
+      table.heartbeatAt
+    )
+  ]
+);
+
+export const workerExecutionSlots = pgTable(
+  "worker_execution_slots",
+  {
+    slotKey: text("slot_key").primaryKey(),
+    taskKind: text("task_kind"),
+    owner: text("owner"),
+    jobId: text("job_id"),
+    attemptId: text("attempt_id"),
+    holderPreemptible: boolean("holder_preemptible"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    fencingToken: bigint("fencing_token", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    preemptRequestedBy: text("preempt_requested_by"),
+    preemptRequestedAt: timestamp("preempt_requested_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "worker_execution_slots_key_check",
+      sql`${table.slotKey} = 'shared-heavy-work'`
+    ),
+    check(
+      "worker_execution_slots_task_kind_check",
+      sql`${table.taskKind} IS NULL OR ${table.taskKind} IN ('analysis','ocr')`
+    ),
+    check(
+      "worker_execution_slots_holder_shape_check",
+      sql`(${table.owner} IS NULL AND ${table.taskKind} IS NULL AND ${table.jobId} IS NULL AND ${table.attemptId} IS NULL AND ${table.holderPreemptible} IS NULL AND ${table.leaseExpiresAt} IS NULL) OR (${table.owner} IS NOT NULL AND ${table.taskKind} IS NOT NULL AND ${table.jobId} IS NOT NULL AND ${table.attemptId} IS NOT NULL AND ${table.holderPreemptible} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL)`
+    ),
+    check(
+      "worker_execution_slots_preempt_shape_check",
+      sql`(${table.preemptRequestedBy} IS NULL) = (${table.preemptRequestedAt} IS NULL)`
+    ),
+    check(
+      "worker_execution_slots_fencing_token_check",
+      sql`${table.fencingToken} >= 0`
+    )
+  ]
+);
+
+export const seriesAnalysisQueueOutbox = pgTable(
+  "series_analysis_queue_outbox",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => seriesAnalysisJobs.id, { onDelete: "cascade" }),
+    dedupeKey: text("dedupe_key").notNull().unique(),
+    schemaVersion: integer("schema_version").notNull().default(1),
+    status: text("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    redisMessageId: text("redis_message_id"),
+    lastError: text("last_error"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "series_analysis_queue_outbox_schema_version_check",
+      sql`${table.schemaVersion} = 1`
+    ),
+    check(
+      "series_analysis_queue_outbox_status_check",
+      sql`${table.status} IN ('pending','in_flight','delivered','failed')`
+    ),
+    check(
+      "series_analysis_queue_outbox_attempt_count_check",
+      sql`${table.attemptCount} BETWEEN 0 AND 3`
+    ),
+    check(
+      "series_analysis_queue_outbox_claim_shape_check",
+      sql`(${table.status} = 'in_flight') = (${table.claimExpiresAt} IS NOT NULL)`
+    ),
+    check(
+      "series_analysis_queue_outbox_delivery_shape_check",
+      sql`(${table.status} = 'delivered') = (${table.deliveredAt} IS NOT NULL AND ${table.redisMessageId} IS NOT NULL)`
+    ),
+    index("series_analysis_queue_outbox_dispatch_idx")
+      .on(table.nextAttemptAt, table.createdAt, table.id)
+      .where(sql`${table.status} = 'pending'`),
+    index("series_analysis_queue_outbox_job_idx").on(table.jobId)
+  ]
+);
+
+export const seriesAnalysisArtifacts = pgTable(
+  "series_analysis_artifacts",
+  {
+    id: text("id").primaryKey(),
+    gameTitleId: text("game_title_id")
+      .notNull()
+      .references(() => gameTitles.id, { onDelete: "cascade" }),
+    attemptId: text("attempt_id").references(() => seriesAnalysisJobAttempts.id, {
+      onDelete: "set null"
+    }),
+    inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
+    algorithmVersion: text("algorithm_version").notNull(),
+    artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    sourceInputChecksum: text("source_input_checksum").notNull(),
+    rootChecksum: text("root_checksum").notNull(),
+    status: text("status").notNull().default("staging"),
+    aggregateChunkCount: integer("aggregate_chunk_count").notNull(),
+    reviewChunkCount: integer("review_chunk_count").notNull(),
+    drilldownChunkCount: integer("drilldown_chunk_count").notNull(),
+    matchContextChunkCount: integer("match_context_chunk_count").notNull(),
+    encodedBytes: bigint("encoded_bytes", { mode: "bigint" }).notNull(),
+    decodedBytes: bigint("decoded_bytes", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+  },
+  (table) => [
+    uniqueIndex("series_analysis_artifacts_id_title_unique").on(
+      table.id,
+      table.gameTitleId
+    ),
+    check(
+      "series_analysis_artifacts_input_revision_check",
+      sql`${table.inputRevision} >= 0`
+    ),
+    check(
+      "series_analysis_artifacts_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    check(
+      "series_analysis_artifacts_status_check",
+      sql`${table.status} IN ('staging','published')`
+    ),
+    check(
+      "series_analysis_artifacts_checksum_check",
+      sql`${table.sourceInputChecksum} ~ '^sha256:[0-9a-f]{64}$' AND ${table.rootChecksum} ~ '^sha256:[0-9a-f]{64}$'`
+    ),
+    check(
+      "series_analysis_artifacts_chunk_counts_check",
+      sql`${table.aggregateChunkCount} >= 1 AND ${table.reviewChunkCount} >= 0 AND ${table.drilldownChunkCount} >= 0 AND ${table.matchContextChunkCount} >= 0`
+    ),
+    check(
+      "series_analysis_artifacts_bytes_check",
+      sql`${table.encodedBytes} >= 0 AND ${table.decodedBytes} = ${table.encodedBytes}`
+    ),
+    check(
+      "series_analysis_artifacts_publication_shape_check",
+      sql`(${table.status} = 'published') = (${table.publishedAt} IS NOT NULL)`
+    ),
+    index("series_analysis_artifacts_staging_cleanup_idx")
+      .on(table.createdAt)
+      .where(sql`${table.status} = 'staging'`),
+    index("series_analysis_artifacts_title_published_idx")
+      .on(table.gameTitleId, table.publishedAt)
+      .where(sql`${table.status} = 'published'`)
+  ]
+);
+
+export const seriesAnalysisScopeAggregateArtifacts = pgTable(
+  "series_analysis_scope_aggregate_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.scopeKey] }),
+    checkSeriesAnalysisScope(
+      "series_analysis_scope_aggregate_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_scope_aggregate_artifacts_chunk_check",
+      table
+    )
+  ]
+);
+
+export const seriesAnalysisScopeReviewArtifacts = pgTable(
+  "series_analysis_scope_review_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.scopeKey] }),
+    checkSeriesAnalysisScope(
+      "series_analysis_scope_review_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_scope_review_artifacts_chunk_check",
+      table
+    )
+  ]
+);
+
+export const seriesAnalysisDrilldownArtifacts = pgTable(
+  "series_analysis_drilldown_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    memberId: text("member_id").notNull(),
+    metricId: text("metric_id").notNull(),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.artifactId, table.scopeKey, table.memberId, table.metricId]
+    }),
+    checkSeriesAnalysisScope(
+      "series_analysis_drilldown_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_drilldown_artifacts_chunk_check",
+      table
+    )
+  ]
+);
+
+export const seriesAnalysisMatchContextArtifacts = pgTable(
+  "series_analysis_match_context_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    matchId: text("match_id").notNull(),
+    sourceMatchRevision: bigint("source_match_revision", {
+      mode: "bigint"
+    }).notNull(),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.scopeKey, table.matchId] }),
+    checkSeriesAnalysisScope(
+      "series_analysis_match_context_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_match_context_artifacts_chunk_check",
+      table
+    ),
+    check(
+      "series_analysis_match_context_artifacts_revision_check",
+      sql`${table.sourceMatchRevision} >= 0`
+    ),
+    index("series_analysis_match_context_artifacts_match_idx").on(table.matchId)
+  ]
+);
+
+type SeriesAnalysisScopeColumns = {
+  scopeKey: AnyPgColumn;
+  scopeKind: AnyPgColumn;
+  seasonMasterId: AnyPgColumn;
+  mapMasterId: AnyPgColumn;
+};
+
+type SeriesAnalysisChunkColumns = {
+  payload: AnyPgColumn;
+  encodedBytes: AnyPgColumn;
+  decodedBytes: AnyPgColumn;
+  itemCount: AnyPgColumn;
+  nestingDepth: AnyPgColumn;
+  checksum: AnyPgColumn;
+};
+
+function checkSeriesAnalysisScope(
+  name: string,
+  table: SeriesAnalysisScopeColumns
+) {
+  return check(
+    name,
+    sql`(${table.scopeKind} = 'overall' AND ${table.seasonMasterId} IS NULL AND ${table.mapMasterId} IS NULL AND ${table.scopeKey} = 'overall') OR (${table.scopeKind} = 'season' AND ${table.seasonMasterId} IS NOT NULL AND ${table.mapMasterId} IS NULL AND ${table.scopeKey} = 'season:' || ${table.seasonMasterId}) OR (${table.scopeKind} = 'map' AND ${table.seasonMasterId} IS NULL AND ${table.mapMasterId} IS NOT NULL AND ${table.scopeKey} = 'map:' || ${table.mapMasterId}) OR (${table.scopeKind} = 'season_map' AND ${table.seasonMasterId} IS NOT NULL AND ${table.mapMasterId} IS NOT NULL AND ${table.scopeKey} = 'season_map:' || ${table.seasonMasterId} || ':' || ${table.mapMasterId})`
+  );
+}
+
+function checkSeriesAnalysisChunk(
+  name: string,
+  table: SeriesAnalysisChunkColumns
+) {
+  return check(
+    name,
+    sql`${table.encodedBytes} >= 2 AND ${table.encodedBytes} = octet_length(${table.payload}) AND ${table.decodedBytes} = ${table.encodedBytes} AND ${table.itemCount} >= 0 AND ${table.nestingDepth} BETWEEN 1 AND 64 AND ${table.checksum} ~ '^sha256:[0-9a-f]{64}$'`
+  );
+}
 
 // source-of-truth: 試合 1 行 × 4 プレイヤーの結果。
 //   業務ルール (base.md §5.2): play_order と rank はそれぞれ {1,2,3,4} のユニーク。
