@@ -316,18 +316,121 @@ export const ocrDrafts = pgTable(
   ]
 );
 
+export const SOURCE_IMAGE_STATUSES = [
+  "RESERVED",
+  "AVAILABLE",
+  "DELETE_PENDING",
+  "DELETED",
+  "FAILED"
+] as const;
+export type SourceImageStatus = (typeof SOURCE_IMAGE_STATUSES)[number];
+
+// source-of-truth: object storage 上のOCR入力画像を指すprovider非依存metadata。
+//   object_keyはprivate objectのopaque keyだけを保持し、bucket URLやcredentialは保存しない。
+//   idempotency_key_hashでupload reservationを一意化し、process crash後も同じkeyへ収束させる。
+export const sourceImages = pgTable(
+  "source_images",
+  {
+    id: text("id").primaryKey(),
+    ownerAccountId: text("owner_account_id")
+      .notNull()
+      .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
+    objectKey: text("object_key").notNull(),
+    idempotencyKeyHash: text("idempotency_key_hash").notNull(),
+    status: text("status").notNull().default("RESERVED"),
+    mediaType: text("media_type"),
+    byteLength: integer("byte_length"),
+    sha256Hex: text("sha256_hex"),
+    width: integer("width"),
+    height: integer("height"),
+    storageEtag: text("storage_etag"),
+    failureCode: text("failure_code"),
+    availableAt: timestamp("available_at", { withTimezone: true }),
+    deletePendingAt: timestamp("delete_pending_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("source_images_owner_idempotency_unique").on(
+      table.ownerAccountId,
+      table.idempotencyKeyHash
+    ),
+    uniqueIndex("source_images_object_key_unique").on(table.objectKey),
+    index("source_images_status_updated_at_idx").on(
+      table.status,
+      table.updatedAt
+    ),
+    check(
+      "source_images_status_check",
+      sql`${table.status} IN ('RESERVED','AVAILABLE','DELETE_PENDING','DELETED','FAILED')`
+    ),
+    check(
+      "source_images_object_key_check",
+      sql`length(${table.objectKey}) BETWEEN 1 AND 512 AND ${table.objectKey} !~ '(^/|://|(^|/)\\.\\.(/|$))'`
+    ),
+    check(
+      "source_images_idempotency_hash_check",
+      sql`${table.idempotencyKeyHash} ~ '^[0-9a-f]{64}$'`
+    ),
+    check(
+      "source_images_media_type_check",
+      sql`${table.mediaType} IS NULL OR ${table.mediaType} IN ('image/png','image/jpeg','image/webp')`
+    ),
+    check(
+      "source_images_byte_length_check",
+      sql`${table.byteLength} IS NULL OR ${table.byteLength} BETWEEN 1 AND 3145728`
+    ),
+    check(
+      "source_images_dimensions_check",
+      sql`(${table.width} IS NULL AND ${table.height} IS NULL) OR (${table.width} IS NOT NULL AND ${table.height} IS NOT NULL AND ${table.width} BETWEEN 1 AND 1920 AND ${table.height} BETWEEN 1 AND 1080)`
+    ),
+    check(
+      "source_images_sha256_check",
+      sql`${table.sha256Hex} IS NULL OR ${table.sha256Hex} ~ '^[0-9a-f]{64}$'`
+    ),
+    check(
+      "source_images_available_metadata_check",
+      sql`${table.status} NOT IN ('AVAILABLE','DELETE_PENDING','DELETED') OR (${table.mediaType} IS NOT NULL AND ${table.byteLength} IS NOT NULL AND ${table.sha256Hex} IS NOT NULL AND ${table.width} IS NOT NULL AND ${table.height} IS NOT NULL AND ${table.availableAt} IS NOT NULL)`
+    ),
+    check(
+      "source_images_deletion_state_check",
+      sql`(${table.status} <> 'DELETE_PENDING' OR ${table.deletePendingAt} IS NOT NULL) AND (${table.status} <> 'DELETED' OR (${table.deletePendingAt} IS NOT NULL AND ${table.deletedAt} IS NOT NULL))`
+    )
+  ]
+);
+
 export const ocrJobs = pgTable(
   "ocr_jobs",
   {
     id: text("id").primaryKey(),
     draftId: text("draft_id").notNull(),
     imageId: text("image_id").notNull(),
-    imagePath: text("image_path").notNull(),
+    // v1 local worker input。queue_schema_version=2ではsource_image_idを正本にする。
+    imagePath: text("image_path"),
+    sourceImageId: text("source_image_id").references(() => sourceImages.id, {
+      onDelete: "restrict"
+    }),
+    queueSchemaVersion: smallint("queue_schema_version").notNull().default(1),
     requestedScreenType: text("requested_screen_type").notNull(),
     detectedScreenType: text("detected_screen_type"),
     status: text("status").notNull(),
     attemptCount: integer("attempt_count").notNull().default(0),
     workerId: text("worker_id"),
+    availableAt: timestamp("available_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    attemptId: uuid("attempt_id"),
+    leaseOwner: text("lease_owner"),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    leaseFencingToken: bigint("lease_fencing_token", { mode: "number" })
+      .notNull()
+      .default(0),
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
     failureRetryable: boolean("failure_retryable"),
@@ -345,7 +448,29 @@ export const ocrJobs = pgTable(
   (table) => [
     uniqueIndex("ocr_jobs_draft_id_unique").on(table.draftId),
     index("ocr_jobs_status_created_at_idx").on(table.status, table.createdAt),
-    index("ocr_jobs_image_id_idx").on(table.imageId)
+    index("ocr_jobs_image_id_idx").on(table.imageId),
+    index("ocr_jobs_source_image_id_idx").on(table.sourceImageId),
+    index("ocr_jobs_claimable_idx").on(table.status, table.availableAt),
+    check(
+      "ocr_jobs_queue_schema_version_check",
+      sql`${table.queueSchemaVersion} IN (1, 2)`
+    ),
+    check(
+      "ocr_jobs_input_contract_check",
+      sql`(${table.queueSchemaVersion} = 1 AND ${table.imagePath} IS NOT NULL) OR (${table.queueSchemaVersion} = 2 AND ${table.sourceImageId} IS NOT NULL)`
+    ),
+    check(
+      "ocr_jobs_attempt_count_check",
+      sql`${table.attemptCount} >= 0`
+    ),
+    check(
+      "ocr_jobs_lease_fencing_token_check",
+      sql`${table.leaseFencingToken} >= 0`
+    ),
+    check(
+      "ocr_jobs_lease_shape_check",
+      sql`(${table.attemptId} IS NULL AND ${table.leaseOwner} IS NULL AND ${table.leaseToken} IS NULL AND ${table.leaseExpiresAt} IS NULL) OR (${table.attemptId} IS NOT NULL AND ${table.leaseOwner} IS NOT NULL AND ${table.leaseToken} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.leaseFencingToken} >= 1)`
+    )
   ]
 );
 
@@ -371,9 +496,11 @@ export const ocrQueueOutbox = pgTable(
     dedupeKey: text("dedupe_key").notNull(),
     // source-of-truth: Redis Stream に送る key/value payload を request 時点の値で保持する。
     streamPayload: jsonb("stream_payload").notNull(),
+    schemaVersion: smallint("schema_version").notNull().default(1),
     status: text("status").notNull().default("PENDING"),
     attemptCount: integer("attempt_count").notNull().default(0),
     lastError: text("last_error"),
+    claimToken: uuid("claim_token"),
     claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
       .notNull()
@@ -399,6 +526,10 @@ export const ocrQueueOutbox = pgTable(
     check(
       "ocr_queue_outbox_attempt_count_check",
       sql`${table.attemptCount} >= 0`
+    ),
+    check(
+      "ocr_queue_outbox_schema_version_check",
+      sql`${table.schemaVersion} IN (1, 2)`
     ),
     uniqueIndex("uq_ocr_queue_outbox_dedupe_active")
       .on(table.dedupeKey)
