@@ -621,6 +621,19 @@ export const discordOutbox = pgTable(
       table.status,
       table.nextAttemptAt
     ),
+    // why: releaseExpiredOutboxClaims / claimNextBatch の IN_FLIGHT + claim_expires_at range scan。
+    index("idx_discord_outbox_in_flight_claim_expires")
+      .on(table.claimExpiresAt)
+      .where(sql`${table.status} = 'IN_FLIGHT'`),
+    // why: pruneOutbox の DELIVERED + delivered_at range scan。配送中の行は含めない。
+    index("idx_discord_outbox_delivered_at")
+      .on(table.deliveredAt)
+      .where(sql`${table.status} = 'DELIVERED'`),
+    // why: pruneOutbox の FAILED/CANCELLED + updated_at range scan。PENDING/IN_FLIGHT の
+    //   recovery対象をindexへ入れず、retention queryの対象だけを保持する。
+    index("idx_discord_outbox_terminal_updated_at")
+      .on(table.updatedAt)
+      .where(sql`${table.status} IN ('FAILED','CANCELLED')`),
     uniqueIndex("uq_discord_outbox_session_order").on(
       table.sessionId,
       table.aggregateRevision,

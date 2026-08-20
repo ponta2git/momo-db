@@ -1,0 +1,3 @@
+CREATE INDEX "idx_discord_outbox_in_flight_claim_expires" ON "discord_outbox" USING btree ("claim_expires_at") WHERE "discord_outbox"."status" = 'IN_FLIGHT';--> statement-breakpoint
+CREATE INDEX "idx_discord_outbox_delivered_at" ON "discord_outbox" USING btree ("delivered_at") WHERE "discord_outbox"."status" = 'DELIVERED';--> statement-breakpoint
+CREATE INDEX "idx_discord_outbox_terminal_updated_at" ON "discord_outbox" USING btree ("updated_at") WHERE "discord_outbox"."status" IN ('FAILED','CANCELLED');

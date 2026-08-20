@@ -211,6 +211,13 @@
       "when": 1787225297989,
       "tag": "0029_fluffy_silver_surfer",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1787225433068,
+      "tag": "0030_cynical_frightful_four",
+      "breakpoints": true
     }
   ]
 }
