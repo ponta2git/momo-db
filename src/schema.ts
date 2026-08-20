@@ -188,11 +188,11 @@ export const sessions = pgTable(
     // why: findDueAskingSessions / findDuePostponeVotingSessions の `WHERE status IN (...) AND deadline_at <= now`
     //   を prefix/range scan で支援するため status を leading column に置いた composite index。
     index("idx_sessions_status_deadline").on(table.status, table.deadlineAt),
-    // why: findDueReminderSessions の `status='DECIDED' AND reminder_sent_at IS NULL AND reminder_at <= now`
-    //   を prefix scan で支援する composite index。
+    // why: findDueReminderSessions / findDueStartupRecoverySessions の
+    //   `status='DECIDED' AND reminder_at <= now` を prefix/range scan で支援する composite index。
+    //   reminder_sent_at は旧 claim-first 経路の曖昧な marker であり、due predicate には使わない。
     index("idx_sessions_status_reminder").on(
       table.status,
-      table.reminderSentAt,
       table.reminderAt
     )
   ]

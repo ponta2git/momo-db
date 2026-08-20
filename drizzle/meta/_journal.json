@@ -204,6 +204,13 @@
       "when": 1786453418431,
       "tag": "0028_ocr_object_storage_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787225297989,
+      "tag": "0029_fluffy_silver_surfer",
+      "breakpoints": true
     }
   ]
 }
