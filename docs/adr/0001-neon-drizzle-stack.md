@@ -12,7 +12,7 @@ tags: [db, ops]
 
 ## TL;DR
 
-discord bot プロジェクト群（summit / momo-result）の共有 DB として Neon PostgreSQL 16 を採用し、スキーマ管理・migration ツールに Drizzle ORM + drizzle-kit を使う。
+discord bot プロジェクト群（summit / momo-result）の共有 DB として Neon PostgreSQL 18 を採用し、スキーマ管理・migration ツールに Drizzle ORM + drizzle-kit を使う。
 
 ## Context
 
@@ -28,7 +28,7 @@ Forces:
 
 ### DB
 
-- **Neon PostgreSQL 16**: branching / scale-to-zero / Serverless ドライバを備え、個人プロジェクト規模のコスト・運用負担に適合する。
+- **Neon PostgreSQL 18**: branching / scale-to-zero / Serverless ドライバを備え、個人プロジェクト規模のコスト・運用負担に適合する。local compose と CI integration service も同じ major version を使う。
 
 ### ORM / migration
 
