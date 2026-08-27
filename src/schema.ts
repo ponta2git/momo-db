@@ -886,7 +886,16 @@ export const matches = pgTable(
     // mutation that can change a match-context artifact.
     analysisRevision: bigint("analysis_revision", { mode: "bigint" })
       .notNull()
-      .default(sql`0`)
+      .default(sql`0`),
+    noteBody: text("note_body"),
+    noteVersion: bigint("note_version", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    noteUpdatedByAccountId: text("note_updated_by_account_id").references(
+      () => momoLoginAccounts.id,
+      { onDelete: "restrict" }
+    ),
+    noteUpdatedAt: timestamp("note_updated_at", { withTimezone: true })
   },
   (table) => [
     uniqueIndex("matches_event_match_no_unique").on(
@@ -900,6 +909,15 @@ export const matches = pgTable(
     check(
       "matches_analysis_revision_check",
       sql`${table.analysisRevision} >= 0`
+    ),
+    check("matches_note_version_check", sql`${table.noteVersion} >= 0`),
+    check(
+      "matches_note_shape_check",
+      sql`(
+        (${table.noteVersion} = 0 AND ${table.noteBody} IS NULL AND ${table.noteUpdatedByAccountId} IS NULL AND ${table.noteUpdatedAt} IS NULL)
+        OR
+        (${table.noteVersion} > 0 AND ${table.noteUpdatedByAccountId} IS NOT NULL AND ${table.noteUpdatedAt} IS NOT NULL)
+      )`
     ),
     index("matches_held_event_id_idx").on(table.heldEventId),
     index("matches_created_by_account_id_idx").on(table.createdByAccountId),
