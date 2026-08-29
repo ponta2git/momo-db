@@ -1,14 +1,16 @@
 ---
 adr: 0003
 title: GitHub Actions で CI + Neon migration の自動化
-status: accepted
+status: superseded
 date: 2026-04-29
 supersedes: []
-superseded-by: null
+superseded-by: 0004
 tags: [ci, ops, db]
 ---
 
 # ADR-0003: GitHub Actions で CI + Neon migration の自動化
+
+> 2026-08-11: production migration の無承認自動適用は [ADR-0004](./0004-production-migration-approval.md) により置き換えられた。
 
 ## TL;DR
 
