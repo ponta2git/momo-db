@@ -925,6 +925,43 @@ export const matches = pgTable(
   ]
 );
 
+// source-of-truth: active analysis tuple inherited by titles registered after a promotion.
+export const seriesAnalysisReleaseState = pgTable(
+  "series_analysis_release_state",
+  {
+    singletonKey: text("singleton_key").primaryKey().default("current"),
+    algorithmVersion: text("algorithm_version")
+      .notNull()
+      .default("series-analysis-v1"),
+    artifactSchemaVersion: integer("artifact_schema_version")
+      .notNull()
+      .default(1),
+    validationContractId: text("validation_contract_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    check(
+      "series_analysis_release_state_singleton_check",
+      sql`${table.singletonKey} = 'current'`
+    ),
+    check(
+      "series_analysis_release_state_schema_version_check",
+      sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_release_state_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_release_state_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
+    )
+  ]
+);
+
 // source-of-truth: desired and published analysis state for every registered game title.
 // A row is inserted with game_titles and existing titles are backfilled by the introducing migration.
 export const seriesAnalysisTitleStates = pgTable(
@@ -942,6 +979,7 @@ export const seriesAnalysisTitleStates = pgTable(
     artifactSchemaVersion: integer("artifact_schema_version")
       .notNull()
       .default(1),
+    validationContractId: text("validation_contract_id"),
     pendingWork: boolean("pending_work").notNull().default(false),
     pendingForcedRunCount: integer("pending_forced_run_count")
       .notNull()
@@ -965,6 +1003,15 @@ export const seriesAnalysisTitleStates = pgTable(
     check(
       "series_analysis_title_states_schema_version_check",
       sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_title_states_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_title_states_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
     ),
     check(
       "series_analysis_title_states_pending_forced_run_count_check",
@@ -1060,6 +1107,7 @@ export const seriesAnalysisCampaigns = pgTable(
     trigger: text("trigger").notNull(),
     algorithmVersion: text("algorithm_version").notNull(),
     artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    validationContractId: text("validation_contract_id"),
     status: text("status").notNull().default("queued"),
     targetCount: integer("target_count").notNull(),
     expandedCount: integer("expanded_count").notNull().default(0),
@@ -1074,7 +1122,7 @@ export const seriesAnalysisCampaigns = pgTable(
   (table) => [
     check(
       "series_analysis_campaigns_trigger_check",
-      sql`${table.trigger} IN ('manual','algorithm_update','artifact_schema_update','initial_backfill')`
+      sql`${table.trigger} IN ('manual','algorithm_update','artifact_schema_update','validation_contract_update','initial_backfill')`
     ),
     check(
       "series_analysis_campaigns_status_check",
@@ -1083,6 +1131,15 @@ export const seriesAnalysisCampaigns = pgTable(
     check(
       "series_analysis_campaigns_schema_version_check",
       sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_campaigns_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_campaigns_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
     ),
     check(
       "series_analysis_campaigns_counts_check",
@@ -1112,6 +1169,7 @@ export const seriesAnalysisCampaignTargets = pgTable(
     artifactSchemaVersion: integer("artifact_schema_version")
       .notNull()
       .default(1),
+    validationContractId: text("validation_contract_id"),
     status: text("status").notNull().default("pending"),
     jobRequestId: text("job_request_id"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true })
@@ -1130,6 +1188,15 @@ export const seriesAnalysisCampaignTargets = pgTable(
     check(
       "series_analysis_campaign_targets_schema_version_check",
       sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_campaign_targets_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_campaign_targets_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
     ),
     check(
       "series_analysis_campaign_targets_status_check",
@@ -1154,6 +1221,7 @@ export const seriesAnalysisJobs = pgTable(
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
     algorithmVersion: text("algorithm_version").notNull(),
     artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    validationContractId: text("validation_contract_id"),
     status: text("status").notNull().default("queued"),
     trigger: text("trigger").notNull(),
     requestedAt: timestamp("requested_at", { withTimezone: true })
@@ -1168,6 +1236,7 @@ export const seriesAnalysisJobs = pgTable(
     leaseAttemptId: text("lease_attempt_id"),
     leaseFencingToken: bigint("lease_fencing_token", { mode: "bigint" }),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    leaseValidationContractId: text("lease_validation_contract_id"),
     attemptCount: integer("attempt_count").notNull().default(0),
     transientRetryCount: integer("transient_retry_count").notNull().default(0),
     leaseRecoveryCount: integer("lease_recovery_count").notNull().default(0),
@@ -1191,13 +1260,26 @@ export const seriesAnalysisJobs = pgTable(
       "series_analysis_jobs_schema_version_check",
       sql`${table.artifactSchemaVersion} >= 1`
     ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_jobs_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_jobs_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_jobs_lease_validation_id_check",
+      table.leaseValidationContractId
+    ),
     check(
       "series_analysis_jobs_status_check",
       sql`${table.status} IN ('queued','running','succeeded','failed','timed_out')`
     ),
     check(
       "series_analysis_jobs_trigger_check",
-      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','initial_backfill','match_mutation')`
+      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation')`
     ),
     check(
       "series_analysis_jobs_counts_check",
@@ -1210,6 +1292,10 @@ export const seriesAnalysisJobs = pgTable(
     check(
       "series_analysis_jobs_lease_shape_check",
       sql`(${table.status} = 'running' AND ${table.leaseOwner} IS NOT NULL AND ${table.leaseAttemptId} IS NOT NULL AND ${table.leaseFencingToken} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL) OR (${table.status} <> 'running' AND ${table.leaseOwner} IS NULL AND ${table.leaseAttemptId} IS NULL AND ${table.leaseFencingToken} IS NULL AND ${table.leaseExpiresAt} IS NULL)`
+    ),
+    check(
+      "series_analysis_jobs_lease_validation_contract_check",
+      sql`(${table.status} = 'running' AND ${table.leaseValidationContractId} IS NOT DISTINCT FROM ${table.validationContractId}) OR (${table.status} <> 'running' AND ${table.leaseValidationContractId} IS NULL)`
     ),
     check(
       "series_analysis_jobs_terminal_shape_check",
@@ -1242,6 +1328,7 @@ export const seriesAnalysisJobRequests = pgTable(
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
     algorithmVersion: text("algorithm_version").notNull(),
     artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    validationContractId: text("validation_contract_id"),
     trigger: text("trigger").notNull(),
     forceRun: boolean("force_run").notNull().default(false),
     status: text("status").notNull().default("pending"),
@@ -1263,13 +1350,22 @@ export const seriesAnalysisJobRequests = pgTable(
       "series_analysis_job_requests_schema_version_check",
       sql`${table.artifactSchemaVersion} >= 1`
     ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_job_requests_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_job_requests_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
+    ),
     check(
       "series_analysis_job_requests_status_check",
       sql`${table.status} IN ('pending','assigned','fulfilled')`
     ),
     check(
       "series_analysis_job_requests_trigger_check",
-      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','initial_backfill','match_mutation')`
+      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation')`
     ),
     check(
       "series_analysis_job_requests_fulfilled_shape_check",
@@ -1300,6 +1396,7 @@ export const seriesAnalysisJobAttempts = pgTable(
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
     algorithmVersion: text("algorithm_version").notNull(),
     artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    validationContractId: text("validation_contract_id"),
     status: text("status").notNull().default("running"),
     outcome: text("outcome"),
     effectiveConfigVersion: text("effective_config_version").notNull(),
@@ -1330,6 +1427,15 @@ export const seriesAnalysisJobAttempts = pgTable(
       "series_analysis_job_attempts_positive_check",
       sql`${table.attemptNo} >= 1 AND ${table.fencingToken} >= 1 AND ${table.inputRevision} >= 0 AND ${table.artifactSchemaVersion} >= 1 AND ${table.calculationTimeoutMilliseconds} >= 1`
     ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_job_attempts_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_job_attempts_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
+    ),
     check(
       "series_analysis_job_attempts_status_check",
       sql`${table.status} IN ('running','terminal')`
@@ -1354,6 +1460,9 @@ export const seriesAnalysisWorkerCapabilities = pgTable(
     workerId: text("worker_id").primaryKey(),
     algorithmVersions: jsonb("algorithm_versions").notNull(),
     artifactSchemaVersions: jsonb("artifact_schema_versions").notNull(),
+    validationContractIds: jsonb("validation_contract_ids")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     draining: boolean("draining").notNull().default(false),
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
@@ -1371,6 +1480,10 @@ export const seriesAnalysisWorkerCapabilities = pgTable(
       "series_analysis_worker_capabilities_schemas_array_check",
       sql`jsonb_typeof(${table.artifactSchemaVersions}) = 'array'`
     ),
+    check(
+      "series_analysis_worker_validation_contracts_array_check",
+      sql`jsonb_typeof(${table.validationContractIds}) = 'array'`
+    ),
     index("series_analysis_worker_capabilities_heartbeat_idx").on(
       table.heartbeatAt
     )
@@ -1382,6 +1495,9 @@ export const seriesAnalysisReaderCapabilities = pgTable(
   {
     readerId: text("reader_id").primaryKey(),
     artifactSchemaVersions: jsonb("artifact_schema_versions").notNull(),
+    validationContractIds: jsonb("validation_contract_ids")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     draining: boolean("draining").notNull().default(false),
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
@@ -1394,6 +1510,10 @@ export const seriesAnalysisReaderCapabilities = pgTable(
     check(
       "series_analysis_reader_capabilities_schemas_array_check",
       sql`jsonb_typeof(${table.artifactSchemaVersions}) = 'array'`
+    ),
+    check(
+      "series_analysis_reader_validation_contracts_array_check",
+      sql`jsonb_typeof(${table.validationContractIds}) = 'array'`
     ),
     index("series_analysis_reader_capabilities_heartbeat_idx").on(
       table.heartbeatAt
@@ -1511,6 +1631,7 @@ export const seriesAnalysisArtifacts = pgTable(
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
     algorithmVersion: text("algorithm_version").notNull(),
     artifactSchemaVersion: integer("artifact_schema_version").notNull(),
+    validationContractId: text("validation_contract_id"),
     sourceInputChecksum: text("source_input_checksum").notNull(),
     rootChecksum: text("root_checksum").notNull(),
     status: text("status").notNull().default("staging"),
@@ -1537,6 +1658,15 @@ export const seriesAnalysisArtifacts = pgTable(
     check(
       "series_analysis_artifacts_schema_version_check",
       sql`${table.artifactSchemaVersion} >= 1`
+    ),
+    checkSeriesAnalysisValidationContract(
+      "series_analysis_artifacts_validation_contract_check",
+      table.validationContractId
+    ),
+    checkSeriesAnalysisValidationSchema(
+      "series_analysis_artifacts_validation_schema_check",
+      table.artifactSchemaVersion,
+      table.validationContractId
     ),
     check(
       "series_analysis_artifacts_status_check",
@@ -1733,6 +1863,24 @@ function checkSeriesAnalysisChunk(
   return check(
     name,
     sql`${table.encodedBytes} >= 2 AND ${table.encodedBytes} = octet_length(${table.payload}) AND ${table.decodedBytes} = ${table.encodedBytes} AND ${table.itemCount} >= 0 AND ${table.nestingDepth} BETWEEN 1 AND 64 AND ${table.checksum} ~ '^sha256:[0-9a-f]{64}$'`
+  );
+}
+
+function checkSeriesAnalysisValidationContract(name: string, column: AnyPgColumn) {
+  return check(
+    name,
+    sql`${column} IS NULL OR ${column} ~ '^[a-z0-9][a-z0-9._-]{0,127}$'`
+  );
+}
+
+function checkSeriesAnalysisValidationSchema(
+  name: string,
+  artifactSchemaVersion: AnyPgColumn,
+  validationContractId: AnyPgColumn
+) {
+  return check(
+    name,
+    sql`${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR ${artifactSchemaVersion} = 2`
   );
 }
 

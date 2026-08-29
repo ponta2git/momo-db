@@ -1,0 +1,46 @@
+CREATE TABLE "series_analysis_release_state" (
+	"singleton_key" text PRIMARY KEY DEFAULT 'current' NOT NULL,
+	"algorithm_version" text DEFAULT 'series-analysis-v1' NOT NULL,
+	"artifact_schema_version" integer DEFAULT 1 NOT NULL,
+	"validation_contract_id" text,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "series_analysis_release_state_singleton_check" CHECK ("series_analysis_release_state"."singleton_key" = 'current'),
+	CONSTRAINT "series_analysis_release_state_schema_version_check" CHECK ("series_analysis_release_state"."artifact_schema_version" >= 1),
+	CONSTRAINT "series_analysis_release_state_validation_contract_check" CHECK ("series_analysis_release_state"."validation_contract_id" IS NULL OR "series_analysis_release_state"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
+	CONSTRAINT "series_analysis_release_state_validation_schema_check" CHECK ("series_analysis_release_state"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_release_state"."artifact_schema_version" = 2)
+);
+--> statement-breakpoint
+ALTER TABLE "series_analysis_campaigns" DROP CONSTRAINT "series_analysis_campaigns_trigger_check";--> statement-breakpoint
+ALTER TABLE "series_analysis_job_requests" DROP CONSTRAINT "series_analysis_job_requests_trigger_check";--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" DROP CONSTRAINT "series_analysis_jobs_trigger_check";--> statement-breakpoint
+ALTER TABLE "series_analysis_artifacts" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_campaign_targets" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_campaigns" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_job_attempts" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_job_requests" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD COLUMN "lease_validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_reader_capabilities" ADD COLUMN "validation_contract_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "series_analysis_title_states" ADD COLUMN "validation_contract_id" text;--> statement-breakpoint
+ALTER TABLE "series_analysis_worker_capabilities" ADD COLUMN "validation_contract_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "series_analysis_artifacts" ADD CONSTRAINT "series_analysis_artifacts_validation_contract_check" CHECK ("series_analysis_artifacts"."validation_contract_id" IS NULL OR "series_analysis_artifacts"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_artifacts" ADD CONSTRAINT "series_analysis_artifacts_validation_schema_check" CHECK ("series_analysis_artifacts"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_artifacts"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_campaign_targets" ADD CONSTRAINT "series_analysis_campaign_targets_validation_contract_check" CHECK ("series_analysis_campaign_targets"."validation_contract_id" IS NULL OR "series_analysis_campaign_targets"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_campaign_targets" ADD CONSTRAINT "series_analysis_campaign_targets_validation_schema_check" CHECK ("series_analysis_campaign_targets"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_campaign_targets"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_campaigns" ADD CONSTRAINT "series_analysis_campaigns_validation_contract_check" CHECK ("series_analysis_campaigns"."validation_contract_id" IS NULL OR "series_analysis_campaigns"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_campaigns" ADD CONSTRAINT "series_analysis_campaigns_validation_schema_check" CHECK ("series_analysis_campaigns"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_campaigns"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_campaigns" ADD CONSTRAINT "series_analysis_campaigns_trigger_check" CHECK ("series_analysis_campaigns"."trigger" IN ('manual','algorithm_update','artifact_schema_update','validation_contract_update','initial_backfill'));--> statement-breakpoint
+ALTER TABLE "series_analysis_job_attempts" ADD CONSTRAINT "series_analysis_job_attempts_validation_contract_check" CHECK ("series_analysis_job_attempts"."validation_contract_id" IS NULL OR "series_analysis_job_attempts"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_job_attempts" ADD CONSTRAINT "series_analysis_job_attempts_validation_schema_check" CHECK ("series_analysis_job_attempts"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_job_attempts"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_job_requests" ADD CONSTRAINT "series_analysis_job_requests_validation_contract_check" CHECK ("series_analysis_job_requests"."validation_contract_id" IS NULL OR "series_analysis_job_requests"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_job_requests" ADD CONSTRAINT "series_analysis_job_requests_validation_schema_check" CHECK ("series_analysis_job_requests"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_job_requests"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_job_requests" ADD CONSTRAINT "series_analysis_job_requests_trigger_check" CHECK ("series_analysis_job_requests"."trigger" IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation'));--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD CONSTRAINT "series_analysis_jobs_validation_contract_check" CHECK ("series_analysis_jobs"."validation_contract_id" IS NULL OR "series_analysis_jobs"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD CONSTRAINT "series_analysis_jobs_validation_schema_check" CHECK ("series_analysis_jobs"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_jobs"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD CONSTRAINT "series_analysis_jobs_lease_validation_id_check" CHECK ("series_analysis_jobs"."lease_validation_contract_id" IS NULL OR "series_analysis_jobs"."lease_validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD CONSTRAINT "series_analysis_jobs_lease_validation_contract_check" CHECK (("series_analysis_jobs"."status" = 'running' AND "series_analysis_jobs"."lease_validation_contract_id" IS NOT DISTINCT FROM "series_analysis_jobs"."validation_contract_id") OR ("series_analysis_jobs"."status" <> 'running' AND "series_analysis_jobs"."lease_validation_contract_id" IS NULL));--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD CONSTRAINT "series_analysis_jobs_trigger_check" CHECK ("series_analysis_jobs"."trigger" IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation'));--> statement-breakpoint
+ALTER TABLE "series_analysis_reader_capabilities" ADD CONSTRAINT "series_analysis_reader_validation_contracts_array_check" CHECK (jsonb_typeof("series_analysis_reader_capabilities"."validation_contract_ids") = 'array');--> statement-breakpoint
+ALTER TABLE "series_analysis_title_states" ADD CONSTRAINT "series_analysis_title_states_validation_contract_check" CHECK ("series_analysis_title_states"."validation_contract_id" IS NULL OR "series_analysis_title_states"."validation_contract_id" ~ '^[a-z0-9][a-z0-9._-]{0,127}$');--> statement-breakpoint
+ALTER TABLE "series_analysis_title_states" ADD CONSTRAINT "series_analysis_title_states_validation_schema_check" CHECK ("series_analysis_title_states"."validation_contract_id" IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR "series_analysis_title_states"."artifact_schema_version" = 2);--> statement-breakpoint
+ALTER TABLE "series_analysis_worker_capabilities" ADD CONSTRAINT "series_analysis_worker_validation_contracts_array_check" CHECK (jsonb_typeof("series_analysis_worker_capabilities"."validation_contract_ids") = 'array');
