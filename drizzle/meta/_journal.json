@@ -260,6 +260,20 @@
       "when": 1787995134617,
       "tag": "0036_repair-empty-series-analysis-release-baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788001825395,
+      "tag": "0037_default-series-analysis-validation-contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788001876455,
+      "tag": "0038_repair-empty-series-analysis-validation-contract",
+      "breakpoints": true
     }
   ]
 }

@@ -936,7 +936,9 @@ export const seriesAnalysisReleaseState = pgTable(
     artifactSchemaVersion: integer("artifact_schema_version")
       .notNull()
       .default(2),
-    validationContractId: text("validation_contract_id"),
+    validationContractId: text("validation_contract_id").default(
+      "series-analysis-artifact-v2-full-validation-v1"
+    ),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()

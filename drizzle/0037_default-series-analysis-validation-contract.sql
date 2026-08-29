@@ -1,0 +1,1 @@
+ALTER TABLE "series_analysis_release_state" ALTER COLUMN "validation_contract_id" SET DEFAULT 'series-analysis-artifact-v2-full-validation-v1';
