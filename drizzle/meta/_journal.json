@@ -246,6 +246,20 @@
       "when": 1787986346757,
       "tag": "0034_protect-series-analysis-publications",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1787995115927,
+      "tag": "0035_initialize-series-analysis-release-baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787995134617,
+      "tag": "0036_repair-empty-series-analysis-release-baseline",
+      "breakpoints": true
     }
   ]
 }

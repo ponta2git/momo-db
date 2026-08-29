@@ -932,10 +932,10 @@ export const seriesAnalysisReleaseState = pgTable(
     singletonKey: text("singleton_key").primaryKey().default("current"),
     algorithmVersion: text("algorithm_version")
       .notNull()
-      .default("series-analysis-v1"),
+      .default("series-analysis-v3"),
     artifactSchemaVersion: integer("artifact_schema_version")
       .notNull()
-      .default(1),
+      .default(2),
     validationContractId: text("validation_contract_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

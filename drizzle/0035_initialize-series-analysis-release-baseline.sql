@@ -1,0 +1,2 @@
+ALTER TABLE "series_analysis_release_state" ALTER COLUMN "algorithm_version" SET DEFAULT 'series-analysis-v3';--> statement-breakpoint
+ALTER TABLE "series_analysis_release_state" ALTER COLUMN "artifact_schema_version" SET DEFAULT 2;
