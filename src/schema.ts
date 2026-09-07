@@ -932,7 +932,7 @@ export const seriesAnalysisReleaseState = pgTable(
     singletonKey: text("singleton_key").primaryKey().default("current"),
     algorithmVersion: text("algorithm_version")
       .notNull()
-      .default("series-analysis-v3"),
+      .default("series-analysis-v4"),
     artifactSchemaVersion: integer("artifact_schema_version")
       .notNull()
       .default(2),

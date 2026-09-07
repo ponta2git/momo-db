@@ -1,0 +1,1 @@
+ALTER TABLE "series_analysis_release_state" ALTER COLUMN "algorithm_version" SET DEFAULT 'series-analysis-v4';
