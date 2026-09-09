@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { createTestClient } from './notification-fixtures.mjs';
+import { createTestClient, envelope, now, resetFixtures } from './notification-fixtures.mjs';
 
 // Only new, randomly named databases in an explicitly selected local test
 // container are created/dropped. The notification client's host guard also applies.
@@ -136,9 +136,103 @@ test('backup/restore plus the new migration tail preserves held history and all 
       WHERE notification_id = 'migration-notification-ended-linked' AND part_no = 0`;
     assert.equal(delivered.delivered_message_id, 'migration-discord-message');
     assert.equal((await copy`SELECT to_regclass('public.discord_outbox') AS old`)[0].old, null);
-    assert.equal((await copy`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`)[0].n, 44);
+    assert.equal((await copy`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`)[0].n, 46);
     // Existing migration contents/hashes are not changed by the tail.
     assert.deepEqual(await copy`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id LIMIT 41`,
+      await original`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`);
+  } finally {
+    await copy?.end(); await original?.end();
+    for (const name of created.reverse()) docker(['dropdb', '-U', username, name]);
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+async function sharedNotificationRows(db, withContext = false) {
+  const [row] = await db`SELECT
+    (SELECT jsonb_agg(to_jsonb(n) - 'delivery_context' ORDER BY id) FROM discord_notifications n) AS parents,
+    (SELECT jsonb_agg(to_jsonb(n) ORDER BY notification_id) FROM discord_notification_results n) AS results,
+    (SELECT jsonb_agg(to_jsonb(n) ORDER BY notification_id) FROM discord_notification_attendance n) AS attendance,
+    (SELECT jsonb_agg(to_jsonb(n) ORDER BY notification_id, target_kind, target_id) FROM discord_notification_targets n) AS targets,
+    (SELECT jsonb_agg(to_jsonb(n) ORDER BY notification_id, part_no) FROM discord_notification_parts n) AS parts,
+    (SELECT jsonb_agg(to_jsonb(n) ORDER BY kind) FROM discord_notification_settings n) AS settings`;
+  if (withContext) assert.equal((await db`SELECT count(*)::int AS n FROM discord_notifications WHERE delivery_context IS NOT NULL`)[0].n, 0);
+  return { ...row };
+}
+
+// These stored functions exist only in the historical prefix fixture, never in
+// the current application contract. Exercise them to preserve real legacy rows.
+async function seedLegacyResults(db) {
+  await resetFixtures(db);
+  for (const kind of ['ocr_completed', 'analysis_completed']) {
+    await db`SELECT set_discord_notification_setting(${kind}, false)`;
+    await db`SELECT set_discord_notification_setting(${kind}, true)`;
+    for (const status of ['DELIVERED', 'IN_FLIGHT', 'FAILED', 'CANCELLED', 'PENDING']) {
+      const payload = await envelope(db, kind, 'legacy-' + kind + '-' + status);
+      await db`SELECT * FROM receive_discord_result_notification(${JSON.stringify(payload)}::text::jsonb, ${now.toISOString()})`;
+    }
+  }
+  const claims = await db`SELECT * FROM claim_discord_notifications('result', 20, ${now.toISOString()}, 60000)`;
+  assert.equal(claims.length, 10);
+  for (const n of claims) {
+    await db`SELECT plan_discord_notification_parts(${n.id}, ${n.claim_token}, 3, 1, ${now.toISOString()})`;
+    const status = n.id.split('-').at(-1);
+    const deliver = async part => {
+      await db`SELECT begin_discord_notification_part(${n.id}, ${part}, ${n.claim_token}, ${now.toISOString()})`;
+      await db`SELECT complete_discord_notification_part(${n.id}, ${part}, ${n.claim_token}, ${'message-' + part}, ${now.toISOString()})`;
+    };
+    if (status === 'DELIVERED') {
+      for (const part of [0, 1, 2]) await deliver(part);
+    } else if (status === 'IN_FLIGHT' || status === 'CANCELLED') {
+      await deliver(0);
+      await db`SELECT begin_discord_notification_part(${n.id}, 1, ${n.claim_token}, ${now.toISOString()})`;
+      if (status === 'CANCELLED') await db`SELECT cancel_discord_notification(${n.id}, 'setting_off', ${now.toISOString()})`;
+    } else {
+      await db`SELECT fail_discord_notification(${n.id}, ${n.claim_token}, 'delivery_failed',
+        ${status === 'PENDING' ? new Date(now.getTime() + 60000).toISOString() : null}, ${now.toISOString()})`;
+    }
+  }
+}
+
+test('application-policy cutover preserves shared snapshots, generations and partial delivery evidence after backup/restore', async () => {
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const source = 'momo_db_test_policy_before_' + suffix;
+  const restored = 'momo_db_test_policy_restore_' + suffix;
+  const folder = mkdtempSync(join(tmpdir(), 'momo-db-policy-prefix-'));
+  const created = [];
+  let original; let copy;
+  try {
+    cpSync('./drizzle', folder, { recursive: true });
+    const path = join(folder, 'meta', '_journal.json');
+    const journal = JSON.parse(readFileSync(path, 'utf8'));
+    journal.entries = journal.entries.filter(entry => entry.idx <= 43);
+    writeFileSync(path, JSON.stringify(journal));
+    for (const name of [source, restored]) {
+      docker(['createdb', '-U', username, name]); created.push(name);
+    }
+    original = createTestClient(source);
+    await migrate(drizzle(original), { migrationsFolder: folder });
+    await seedLegacyResults(original);
+    const before = await sharedNotificationRows(original);
+    assert.deepEqual([...new Set(before.parents.map(n => n.status))].sort(),
+      ['CANCELLED', 'DELIVERED', 'FAILED', 'IN_FLIGHT', 'PENDING']);
+    const vectors = [
+      '{"n":2.000,"tiny":-0.0001000,"zero":-0.00}',
+      '{"z":9007199254740993.1000,"a":[1e3,1e-20,true,null,{"text":"1.2300 \\"quoted\\" 日本語"}]}',
+      '{"duplicate":1,"duplicate":2.00,"emoji":"😀","escaped":"\\n\\t\\\\","nested":[[],{}]}'
+    ];
+    const expectedHashes = ["194536e61636a90b6a56d54f523d73bfa99eff50d4e3e97c6ceb48ed9c56df3f", "494f26f798a885e2e9a0fc217d71614c876904193a4cb53e9d558cd8b1886a80", "d33491a36e863088211bb0f67c200b79f0c66c2888aa29e8deea39c5d5db3ff3"];
+    for (const [index, raw] of vectors.entries()) {
+      const [oracle] = await original`SELECT discord_notification_hash(${raw}::text::jsonb) AS hash`;
+      assert.equal(oracle.hash, expectedHashes[index], "Historical JSONB hash identity must remain stable");
+    }
+    const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', source]);
+    docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
+    copy = createTestClient(restored);
+    assert.deepEqual(await sharedNotificationRows(copy), before);
+    await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+    assert.deepEqual(await sharedNotificationRows(copy, true), before);
+    assert.equal((await copy`SELECT to_regprocedure('public.receive_discord_result_notification(jsonb,timestamp with time zone)') AS fn`)[0].fn, null);
+    assert.deepEqual(await copy`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id LIMIT 44`,
       await original`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`);
   } finally {
     await copy?.end(); await original?.end();

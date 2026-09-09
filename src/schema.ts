@@ -558,7 +558,7 @@ export const OUTBOX_STATUSES = [
 export type OutboxStatus = (typeof OUTBOX_STATUSES)[number];
 
 // source-of-truth: アンケートと結果通知で共有する受付・配送の正本。
-//   業務別の順序・取消条件は関連テーブルと DB 操作に閉じ込める。
+//   業務別の順序・取消条件・更新単位は consumer application が定義する。
 export const DISCORD_NOTIFICATION_FAMILIES = ["attendance", "result"] as const;
 export const RESULT_NOTIFICATION_KINDS = ["ocr_completed", "analysis_completed"] as const;
 export type ResultNotificationKind = (typeof RESULT_NOTIFICATION_KINDS)[number];
@@ -586,6 +586,8 @@ export const discordNotifications = pgTable(
     // invariant: 初回描画で部分数と renderer を固定し、再試行時に区切りを変えない。
     partCount: integer("part_count").notNull().default(0),
     rendererVersion: integer("renderer_version"),
+    // Fixed alongside the part plan; a retry must keep its destination and links.
+    deliveryContext: jsonb("delivery_context"),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     terminalAt: timestamp("terminal_at", { withTimezone: true }),
     purgedAt: timestamp("purged_at", { withTimezone: true }),
