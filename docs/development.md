@@ -87,7 +87,16 @@ local 適用は、接続先と backup 要否を確認してから実行する。
 pnpm db:migrate
 ```
 
-共有 DB では、互換な DB expansion を先に適用し、全 consumer を deploy してから、旧 shape を消す contract migration を別 release で行う。
+共有 DB の通常 release では、互換な DB expansion を先に適用し、全 consumer を deploy してから、旧 shape を消す contract migration を別 release で行う。
+
+所有者がメンテナンス停止による一括切替を選んだ場合は、次の条件を満たして同じ停止期間に expansion、data transition、contract と consumer 切替を行える。
+
+1. 利用者へのメンテナンス通知後、API、worker、scheduler、batch、外部配送を含む全 writer を停止する。
+2. 復元 copy を読み出せる backup と、停止直後の保全対象の ID・値・参照の比較基準を揃える。
+3. DB と全 consumer の対応 commit、migration の依存順、旧版への復旧手順を事前に確定する。
+4. 保全対象の比較と consumer の動作確認が終わるまで新規書込み・配送を再開しない。
+
+停止切替でも既存 migration の不変性、schema / custom SQL の分離、必須 gate、本番 approval / preflight は維持する。再開前に戻す場合は DB と consumer を整合する組合せへ復元し、再開後は新規データを守る forward fix を原則とする。
 
 master push では CI が build と `drizzle-kit check` を行う。`drizzle/` に変更がある場合は protected environment `production-db` で対象 commit の承認を待ち、承認後に接続 preflight と migration を直列実行する。通常運用で承認や preflight を迂回しない。CI 自体を復旧できない緊急時は、同じ変更内容への明示承認、backup、接続 preflight を揃えた場合だけ README の手動手順を使う。
 
