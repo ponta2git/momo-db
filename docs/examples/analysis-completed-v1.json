@@ -1,0 +1,191 @@
+{
+  "notificationId": "result:analysis_completed:example-analysis-2",
+  "kind": "analysis_completed",
+  "schemaVersion": 1,
+  "sourceJobId": "example-analysis-2",
+  "occurredAt": "2026-01-01T14:00:00.000Z",
+  "settingsGeneration": "0",
+  "data": {
+    "gameTitleId": "example-title",
+    "gameTitleName": "例の作品",
+    "disposition": "published",
+    "previousAnalysis": {
+      "jobId": "example-analysis-1",
+      "inputRevision": "1",
+      "algorithmVersion": "v4",
+      "artifactSchemaVersion": 4,
+      "validationContractId": "example-contract-v4"
+    },
+    "currentAnalysis": {
+      "jobId": "example-analysis-2",
+      "inputRevision": "2",
+      "algorithmVersion": "v4",
+      "artifactSchemaVersion": 4,
+      "validationContractId": "example-contract-v4"
+    },
+    "matches": [
+      {
+        "matchId": "example-match-2",
+        "sourceRevision": "1",
+        "heldEventId": "example-held",
+        "heldDateIso": "2026-01-01",
+        "matchNoInEvent": 2,
+        "playedAt": "2026-01-01T13:30:00.000Z",
+        "mapName": "例のマップ",
+        "seasonId": "example-season",
+        "seasonName": "例のシーズン",
+        "ownerName": "Player 1",
+        "players": [
+          {
+            "memberId": "example-member-1",
+            "displayName": "Player 1",
+            "rank": 4,
+            "ginjiCount": 0
+          },
+          {
+            "memberId": "example-member-2",
+            "displayName": "Player 2",
+            "rank": 3,
+            "ginjiCount": 1
+          },
+          {
+            "memberId": "example-member-3",
+            "displayName": "Player 3",
+            "rank": 2,
+            "ginjiCount": 2
+          },
+          {
+            "memberId": "example-member-4",
+            "displayName": "Player 4",
+            "rank": 1,
+            "ginjiCount": 3
+          }
+        ],
+        "ginjiTotal": 6,
+        "note": "銀次に遭遇。\n終盤に資産を回復。"
+      }
+    ],
+    "overall": [
+      {
+        "memberId": "example-member-1",
+        "displayName": "Player 1",
+        "before": {
+          "matchCount": 1,
+          "averageRank": 1
+        },
+        "after": {
+          "matchCount": 2,
+          "averageRank": 2.5
+        },
+        "delta": 1.5,
+        "comparison": "comparable"
+      },
+      {
+        "memberId": "example-member-2",
+        "displayName": "Player 2",
+        "before": {
+          "matchCount": 1,
+          "averageRank": 2
+        },
+        "after": {
+          "matchCount": 2,
+          "averageRank": 2.5
+        },
+        "delta": 0.5,
+        "comparison": "comparable"
+      },
+      {
+        "memberId": "example-member-3",
+        "displayName": "Player 3",
+        "before": {
+          "matchCount": 1,
+          "averageRank": 3
+        },
+        "after": {
+          "matchCount": 2,
+          "averageRank": 2.5
+        },
+        "delta": -0.5,
+        "comparison": "comparable"
+      },
+      {
+        "memberId": "example-member-4",
+        "displayName": "Player 4",
+        "before": {
+          "matchCount": 1,
+          "averageRank": 4
+        },
+        "after": {
+          "matchCount": 2,
+          "averageRank": 2.5
+        },
+        "delta": -1.5,
+        "comparison": "comparable"
+      }
+    ],
+    "seasons": [
+      {
+        "seasonId": "example-season",
+        "seasonName": "例のシーズン",
+        "ranks": [
+          {
+            "memberId": "example-member-1",
+            "displayName": "Player 1",
+            "before": {
+              "matchCount": 1,
+              "averageRank": 1
+            },
+            "after": {
+              "matchCount": 2,
+              "averageRank": 2.5
+            },
+            "delta": 1.5,
+            "comparison": "comparable"
+          },
+          {
+            "memberId": "example-member-2",
+            "displayName": "Player 2",
+            "before": {
+              "matchCount": 1,
+              "averageRank": 2
+            },
+            "after": {
+              "matchCount": 2,
+              "averageRank": 2.5
+            },
+            "delta": 0.5,
+            "comparison": "comparable"
+          },
+          {
+            "memberId": "example-member-3",
+            "displayName": "Player 3",
+            "before": {
+              "matchCount": 1,
+              "averageRank": 3
+            },
+            "after": {
+              "matchCount": 2,
+              "averageRank": 2.5
+            },
+            "delta": -0.5,
+            "comparison": "comparable"
+          },
+          {
+            "memberId": "example-member-4",
+            "displayName": "Player 4",
+            "before": {
+              "matchCount": 1,
+              "averageRank": 4
+            },
+            "after": {
+              "matchCount": 2,
+              "averageRank": 2.5
+            },
+            "delta": -1.5,
+            "comparison": "comparable"
+          }
+        ]
+      }
+    ]
+  }
+}

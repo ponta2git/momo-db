@@ -13,6 +13,23 @@ jobs:
     environment: CI Actions
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      MOMO_DB_TEST_DATABASE: momo_db_test_notifications
+      MOMO_DB_TEST_USER: postgres
+      MOMO_DB_TEST_PORT: 5432
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: momo_db_test_notifications
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,6 +64,17 @@ jobs:
 
       - name: drizzle-kit check
         run: pnpm db:check:ci
+
+      - name: Apply all migrations to fresh test database
+        run: pnpm test:prepare
+
+      - name: Notification database contracts
+        run: pnpm test:integration
+
+      - name: Existing database backup, restore and migration
+        env:
+          MOMO_DB_TEST_CONTAINER: ${{ job.services.postgres.id }}
+        run: pnpm test:migrations
 
   approve-migration:
     name: Approve production migration

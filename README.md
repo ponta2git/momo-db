@@ -4,6 +4,7 @@ Discord Bot プロジェクト群（summit / momo-result）が共有する Postg
 
 DB 変更前に、正規の開発手順 [`docs/development.md`](./docs/development.md) を必ず参照する。
 設計判断の記録は [`docs/adr/`](./docs/adr/README.md) を参照。
+Discord 通知の保存・競合・consumer 接続は [共有通知契約](./docs/discord-notifications.md) を参照。
 
 ## CI / CD
 
@@ -11,7 +12,7 @@ master push 時に GitHub Actions が自動実行される。
 
 | ジョブ | 条件 | 内容 |
 |---|---|---|
-| `Build & Check` | 常に実行 | `pnpm build` + `drizzle-kit check` |
+| `Build & Check` | 常に実行 | build、migration 整合性、fresh DB の通知契約、既存 DB の backup / restore・移行検証 |
 | `Approve production migration` | `drizzle/` に変更がある場合のみ | protected environment `production-db` で対象 commit の承認を待つ |
 | `Migrate Neon` | 承認成功後 | 接続 preflight + `drizzle-kit migrate`（Neon 本番 DB に適用） |
 
@@ -47,6 +48,9 @@ pnpm build
 | コマンド | 説明 |
 |---|---|
 | `pnpm build` | TypeScript をコンパイルして `dist/` を生成 |
+| `pnpm test:prepare` | 名前・host を検査した専用テスト DB に全 migration を適用 |
+| `pnpm test:integration` | 受付・取消・claim・分割配送・保持の PostgreSQL 契約テスト |
+| `pnpm test:migrations` | 専用 container で旧データの backup / restore と新 tail の保全検証 |
 | `pnpm db:up` | ローカル postgres コンテナを起動（`compose.yaml`） |
 | `pnpm db:down` | ローカル postgres コンテナを停止 |
 | `pnpm db:generate` | スキーマ変更から新マイグレーション SQL を生成 |

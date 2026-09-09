@@ -77,6 +77,8 @@ pnpm db:check
 4. lock、長時間 transaction、identifier の切り詰め、function の `search_path`、trigger の競合を SQL review する。
 5. 影響する summit / momo-result の build、型検査、DB integration test を通す。
 
+共有 Discord 通知に関わる変更は、[通知契約](discord-notifications.md#導入順序と検証) の専用 DB 設定で `pnpm test:prepare`、`pnpm test:integration`、`pnpm test:migrations` を実行する。後者は代表的な旧データを backup / restore して新 tail を適用し、開催・試合と通知状態を比較する。CI でも同じ PostgreSQL 18 の検証を build / check と合わせて実行する。
+
 保存対象の `summit-postgres` や named volume を fresh-DB 検証に流用しない。fresh 検証には削除可能な一時 DB を使う。
 
 ## 6. 適用と release 順序

@@ -2,6 +2,8 @@
 
 2026-09-09 承認の実施計画。実装・検証と、メンテナンス中の導入順序を定める。
 
+実装した物理名、payload v1、DB 関数と consumer の接続方法は [共有通知契約](../discord-notifications.md) を参照する。
+
 [MOM-14](https://linear.app/ponta/issue/MOM-14) の目的は、Summit が受け付けた OCR 完了通知（A）・分析完了通知（B）について、固定内容、重複防止、取消、配送と回復の状態を共有 DB に永続化することである。既存の開催アンケートも共通の通知・配送基盤へ移し、業務ごとの振る舞いを明示する。
 
 要件の参照先は [通知要件仕様](https://linear.app/ponta/document/discord通知-要件仕様ocr完了分析完了-59da567fe5ba) と [採用方式・連携契約](https://linear.app/ponta/document/discord通知の採用方式連携契約-7830c9e66f29)。DB 変更の規範は [development.md](../development.md) に集約する。本書は実施範囲・合意事項・検証計画を記載し、規範を重複定義しない。

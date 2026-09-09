@@ -288,6 +288,27 @@
       "when": 1788786738311,
       "tag": "0040_initialize-empty-series-analysis-v4",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788949572074,
+      "tag": "0041_shared-discord-notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788949572655,
+      "tag": "0042_discord-notification-contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788950407519,
+      "tag": "0043_retire-session-discord-outbox",
+      "breakpoints": true
     }
   ]
 }
