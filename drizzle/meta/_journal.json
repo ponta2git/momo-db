@@ -274,6 +274,20 @@
       "when": 1788001876455,
       "tag": "0038_repair-empty-series-analysis-validation-contract",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1788786737575,
+      "tag": "0039_default-series-analysis-v4",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788786738311,
+      "tag": "0040_initialize-empty-series-analysis-v4",
+      "breakpoints": true
     }
   ]
 }
