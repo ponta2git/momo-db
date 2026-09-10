@@ -49,7 +49,7 @@ A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request 
 | command / 所有者 | 同じ commit に含めるもの |
 | --- | --- |
 | Summit の result 受付 | 親・payload・結果関連・対象一覧と、PENDING または取消状態 |
-| Summit の設定変更 | ON/OFF、必要な世代加算、該当通知の未開始部分取消 |
+| momo-result API / Summit の設定変更 | ON/OFF、必要な世代加算、該当通知の未開始部分取消 |
 | momo-result の対象変更 | 下書き確定・取消・削除、試合削除と、その対象を含む通知の未開始部分取消 |
 | producer の成功 | 業務成功と、最後に取得した設定・世代・通知 snapshot の判断材料 |
 | Summit の配送 command | claim、初回部分計画、開始、結果確定、失敗、期限回収の各短い更新 |
@@ -57,7 +57,7 @@ A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request 
 
 A/B の共通 gate は `pg_advisory_xact_lock(19790514, 1)`、attendance 配送は同じ名前空間の key 2。これらの値と取得順はアプリ間の排他契約であり、DB が業務上の集約単位を決めるものではない。
 
-- isolation は `READ COMMITTED`。Summit は command の transaction に明示する。
+- isolation は `READ COMMITTED`。Summit と momo-result の設定 command は transaction に明示する。
 - 対象変更は業務行の更新をすべて終えてから result gate を取得し、対象一覧から通知を決定論的な順で lock・取消して commit する。通知がまだなくても gate を取得する。
 - gate を保持する通知 command は業務行を `FOR UPDATE` しない。受付が先なら対象変更側が新規通知を取り消し、対象変更が先なら受付側が commit 済みの取消条件を読む。
 - gate 取得後に追加の業務行 lock や Discord I/O を行わない。取消 helper の後に別の業務書込みを追加するときは command 全体の順序を再検討する。
@@ -69,7 +69,9 @@ momo-result は確認・取消・試合削除に加え、マスター・開催�
 
 ON/OFF が変わるたび世代を一つ進め、同じ値の保存では進めない。OFF と未開始部分取消は同一 command。再 ON でも取消済み ID・古い世代を復活させない。attendance には適用しない。
 
-設定変更は Summit の `ResultNotificationsPort.setSetting` と専用運用 HTTP を通す。MOM-15 の利用者向け API はサーバ側でこの境界に接続し、運用 token をブラウザへ渡さない。旧 `get/set_discord_notification_setting` 関数は存在しない。
+利用者向け設定は momo-result API が共有 DB へ直接保存し、Summit の稼働・HTTP・worker に依存しない。2種類をまとめて保存する command は共通 result gate の取得後に最新の両設定を読み、両方の期待世代を確認してから変更する。一方でも競合したら両方とも変更せず、変更のない種類は世代・更新日時を維持する。変更判定と世代の遷移はアプリに置き、OFF にする種類の未開始部分取消を同じ transaction へ合成する。
+
+Summit の `ResultNotificationsPort.setSetting` と専用運用 HTTP も同じ共有 gate・世代・取消契約を守る。利用者向け API の呼出先としては使わない。旧 `get/set_discord_notification_setting` 関数は存在しない。
 
 MOM-16 / 17 の producer は成功 transaction の末尾で result gate を取得し、設定行を組込み SELECT で読む。ON ならその世代と成功時点の固定内容を確保し、commit 後に HTTP を一度送る。OFF なら送らない。設定取得失敗を理由に業務成功を失敗させない設計は SAVEPOINT 等で明示し、後から現在の設定を読んで送出し直さない。
 
