@@ -1,0 +1,1 @@
+ALTER TABLE "discord_notifications" ADD COLUMN "delivery_context" jsonb;

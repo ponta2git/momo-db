@@ -1,0 +1,21 @@
+{
+  "notificationId": "result:ocr_completed:example-ocr-1",
+  "kind": "ocr_completed",
+  "schemaVersion": 1,
+  "sourceJobId": "example-ocr-1",
+  "occurredAt": "2026-01-01T12:00:00.000Z",
+  "settingsGeneration": "0",
+  "data": {
+    "matchDraftId": "example-draft",
+    "ocrDraftId": "example-ocr-draft",
+    "imageId": "example-image",
+    "screenType": "total_assets",
+    "outcome": "needs_review",
+    "summary": "資産額に確認が必要な項目があります。",
+    "context": {
+      "gameTitleName": "例の作品",
+      "heldDateIso": "2026-01-01",
+      "matchNoInEvent": 1
+    }
+  }
+}
