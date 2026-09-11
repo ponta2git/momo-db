@@ -40,7 +40,9 @@ A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request 
 | B 掲載試合 | 試合 ID・source revision・開催 ID / 日・番号・日時、マップ・シーズン・owner、4人の名前 / 順位 / 銀次回数、銀次合計、メモ全文または null |
 | B 集計 | 4人の memberId / 名前、前後の対象試合数 / 平均順位、丸め前の差分、比較状態 |
 
-作品・シーズン通算は全マップを含む。掲載試合は前回成功から追加・更新された対象で、全履歴を表示時に再検索しない。後日のメモ・表示名・試合編集を本文へ反映しない。リンク先は現在の下書き・試合詳細と最新分析であり、通知時点の分析を固定して表示する画面ではない。
+分析識別は `artifactId`、`inputRevision`、`algorithmVersion`、`artifactSchemaVersion`、`validationContractId`。`sourceJobId` は今回成功した論理ジョブを表し、成果物を作った元ジョブの履歴が整理されても結果の識別・比較を続ける。再利用は新しい通知 ID / `sourceJobId` と、前後で同じ成果物識別を持つ。配送時に元ジョブや成果物を再検索しない。
+
+作品・シーズン通算は全マップを含む。シーズン一覧は追加・変更・削除で影響するシーズンだけとし、削除前とシーズン移動前後の所属を含める。試合の変更がない再計算では現在の全シーズンを載せる。掲載試合は前回成功から追加・更新された対象で、全履歴を表示時に再検索しない。削除試合は掲載せず、対象試合なしを全員銀次 0 回と区別する。未入力メモ欄は省略する。後日のメモ・表示名・試合編集を本文へ反映しない。リンク先は現在の下書き・試合詳細と最新分析であり、通知時点の分析を固定して表示する画面ではない。
 
 比較状態は `comparable`、`initial`、`empty`、`incomparable`、`reused`。件数 0 の平均、初回の前値、比較不能な差分は null。微小差分は丸めず保存する。`reused` は同じ分析識別と集計を前後に置く。旧分析の `validationContractId` は null を許容する。形式検証は Summit、snapshot 計算と成功時点の内容保証は producer の責務。
 
@@ -73,7 +75,7 @@ ON/OFF が変わるたび世代を一つ進め、同じ値の保存では進め�
 
 Summit の `ResultNotificationsPort.setSetting` と専用運用 HTTP も同じ共有 gate・世代・取消契約を守る。利用者向け API の呼出先としては使わない。旧 `get/set_discord_notification_setting` 関数は存在しない。
 
-MOM-16 / 17 の producer は成功 transaction の末尾で result gate を取得し、設定行を組込み SELECT で読む。ON ならその世代と成功時点の固定内容を確保し、commit 後に HTTP を一度送る。OFF なら送らない。設定取得失敗を理由に業務成功を失敗させない設計は SAVEPOINT 等で明示し、後から現在の設定を読んで送出し直さない。
+MOM-16 / 17 の producer は成功 transaction の末尾で result gate を取得し、設定行を組込み SELECT で読む。ON ならその世代と成功時点の固定内容を確保し、commit 後に HTTP を一度送る。OFF なら送らない。B のメモ・表示名は、業務更新と gate 取得後の一括 SELECT の保存済み snapshot で固定する。その SELECT 後から commit までの編集は取り込み保証の対象外であり、このために編集側へ排他を追加しない。設定取得失敗を理由に業務成功を失敗させない設計は SAVEPOINT 等で明示し、後から現在の設定を読んで送出し直さない。
 
 producer outbox、通知 HTTP の再試行・未受付通知の再構築、API の代理送出は追加しない。永続受付前の欠落は許容する。
 

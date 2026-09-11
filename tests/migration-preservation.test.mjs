@@ -168,6 +168,13 @@ async function seedLegacyResults(db) {
     await db`SELECT set_discord_notification_setting(${kind}, true)`;
     for (const status of ['DELIVERED', 'IN_FLIGHT', 'FAILED', 'CANCELLED', 'PENDING']) {
       const payload = await envelope(db, kind, 'legacy-' + kind + '-' + status);
+      // Keep the historical prefix fixture in that migration's original shape.
+      if (kind === 'analysis_completed') {
+        for (const key of ['previousAnalysis', 'currentAnalysis']) {
+          const { artifactId, ...identity } = payload.data[key];
+          payload.data[key] = { ...identity, jobId: artifactId };
+        }
+      }
       await db`SELECT * FROM receive_discord_result_notification(${JSON.stringify(payload)}::text::jsonb, ${now.toISOString()})`;
     }
   }
