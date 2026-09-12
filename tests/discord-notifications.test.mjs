@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
-import { buildDiscordNotificationId } from '../dist/notifications.js';
+import { buildDiscordNotificationId, isNotificationSourceJobId, parseDiscordNotificationId } from '../dist/notifications.js';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
 
 const db = createTestClient();
@@ -56,4 +56,23 @@ test('notification transition functions and policy triggers are absent after app
   const triggers = await db`SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE 'discord_%'`;
   assert.deepEqual([...functions], []);
   assert.deepEqual([...triggers], []);
+});
+
+test('notification identities preserve job punctuation and reject trailing or embedded input', () => {
+  for (const kind of ['ocr_completed', 'analysis_completed']) {
+    for (const job of ['a', 'A0._:-z', 'job:attempt:logical', 'x'.repeat(200)]) {
+      const id = `result:${kind}:${job}`;
+      assert.equal(buildDiscordNotificationId(kind, job), id);
+      assert.deepEqual(parseDiscordNotificationId(id), { kind, sourceJobId: job });
+    }
+    for (const job of ['', '.job', 'x'.repeat(201), 'job\n', 'job\r', 'job\r\n', 'job\u2028', 'job/1', '試験', 'job x']) {
+      assert.equal(isNotificationSourceJobId(job), false);
+      assert.equal(parseDiscordNotificationId(`result:${kind}:${job}`), null);
+      assert.throws(() => buildDiscordNotificationId(kind, job), /Invalid notification identity/);
+    }
+  }
+  for (const id of ['result:unknown:job', 'attendance:ocr_completed:job', 'result:ocr_completed:', 'result:ocr_completed']) {
+    assert.equal(parseDiscordNotificationId(id), null);
+  }
+  assert.throws(() => buildDiscordNotificationId('unknown', 'job'), /Invalid notification identity/);
 });
