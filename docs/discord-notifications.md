@@ -21,7 +21,7 @@
 
 ## 通知 ID と内容照合
 
-A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request では変更しない。`sourceJobId` は `^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`。A は画像単位の OCR ジョブ、B は成功した論理分析ジョブ。新しい手動分析ジョブは新しい ID。`(kind, source_job_id)` も一意とする。
+A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request では変更しない。`sourceJobId` は `^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`。A は画像単位の OCR ジョブ、B は成功した論理分析ジョブ。新しい手動分析ジョブは新しい ID。`(kind, source_job_id)` も一意とする。TypeScript の生成・受付・運用入口は `buildDiscordNotificationId` / `isNotificationSourceJobId` / `parseDiscordNotificationId` を共用し、末尾改行を含む部分一致を許可しない。既存 ID の内容照合は引き続き version 検証より先に行う。
 
 既存の `jsonb-numeric-sha256-v1` を維持する。Summit が生 JSON を PostgreSQL の組込み JSONB text 表現へ正規化し、文字列の外の数値だけ末尾小数ゼロを除き、UTF-8 の SHA-256 を計算する。JSON.parse / JSON.stringify の数値丸めを内容照合に使わない。array の順序、文字列、欠落と null の違いを保持する。producer は hash を送らない。
 

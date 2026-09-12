@@ -3,11 +3,30 @@ import type { ResultNotificationKind } from "./schema.js";
 export const DISCORD_NOTIFICATION_SCHEMA_VERSION = 1 as const;
 export const DISCORD_NOTIFICATION_HASH_VERSION = "jsonb-numeric-sha256-v1" as const;
 
+/** The entire source ID must match, including rejecting a trailing line terminator. */
+export function isNotificationSourceJobId(value: unknown): value is string {
+  return typeof value === "string"
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.exec(value)?.[0] === value;
+}
+
+export interface DiscordNotificationIdentity {
+  readonly kind: ResultNotificationKind;
+  readonly sourceJobId: string;
+}
+
+/** Decode only the stable identity; retained payload versions are checked separately. */
+export function parseDiscordNotificationId(value: string): DiscordNotificationIdentity | null {
+  const prefix = /^result:(ocr_completed|analysis_completed):/.exec(value);
+  const kind = prefix?.[1];
+  if (!prefix || (kind !== "ocr_completed" && kind !== "analysis_completed")) return null;
+  const sourceJobId = value.slice(prefix[0].length);
+  return isNotificationSourceJobId(sourceJobId) ? { kind, sourceJobId } : null;
+}
+
 export function buildDiscordNotificationId(kind: ResultNotificationKind, sourceJobId: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(sourceJobId)) {
-    throw new Error("Invalid notification source job ID");
-  }
-  return `result:${kind}:${sourceJobId}`;
+  const id = `result:${kind}:${sourceJobId}`;
+  if (!parseDiscordNotificationId(id)) throw new Error("Invalid notification identity");
+  return id;
 }
 
 export interface NotificationContext {
