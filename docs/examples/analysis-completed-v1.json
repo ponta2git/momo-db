@@ -10,14 +10,14 @@
     "gameTitleName": "例の作品",
     "disposition": "published",
     "previousAnalysis": {
-      "jobId": "example-analysis-1",
+      "artifactId": "example-artifact-1",
       "inputRevision": "1",
       "algorithmVersion": "v4",
       "artifactSchemaVersion": 4,
       "validationContractId": "example-contract-v4"
     },
     "currentAnalysis": {
-      "jobId": "example-analysis-2",
+      "artifactId": "example-artifact-2",
       "inputRevision": "2",
       "algorithmVersion": "v4",
       "artifactSchemaVersion": 4,

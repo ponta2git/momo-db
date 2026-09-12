@@ -42,7 +42,7 @@ export async function resetFixtures(db) {
 
 export async function envelope(db, kind = 'ocr_completed', sourceJobId = 'job-1') {
   const [setting] = await db`SELECT * FROM discord_notification_settings WHERE kind = ${kind}`;
-  const analysis = { jobId: sourceJobId, inputRevision: '9007199254740993', algorithmVersion: 'v4', artifactSchemaVersion: 4, validationContractId: 'test-v4' };
+  const analysis = { artifactId: 'current-artifact', inputRevision: '9007199254740993', algorithmVersion: 'v4', artifactSchemaVersion: 4, validationContractId: 'test-v4' };
   const ranks = members.map(member => ({ ...member, before: { matchCount: 10000, averageRank: 2.5001 }, after: { matchCount: 10001, averageRank: 2.5 }, delta: -0.0001, comparison: 'comparable' }));
   const data = kind === 'ocr_completed' ? {
     matchDraftId: 'notification-draft', ocrDraftId: 'notification-ocr-draft', imageId: 'notification-image',
@@ -50,7 +50,7 @@ export async function envelope(db, kind = 'ocr_completed', sourceJobId = 'job-1'
     context: { gameTitleName: 'Snapshot title', heldDateIso: '2026-01-01', matchNoInEvent: 1 }
   } : {
     gameTitleId: 'notification-title', gameTitleName: 'Snapshot title', disposition: 'published',
-    previousAnalysis: { ...analysis, jobId: 'previous-job', inputRevision: '9007199254740992' }, currentAnalysis: analysis,
+    previousAnalysis: { ...analysis, artifactId: 'previous-artifact', inputRevision: '9007199254740992' }, currentAnalysis: analysis,
     overall: ranks, seasons: [{ seasonId: 'notification-season', seasonName: 'Snapshot season', ranks }],
     matches: [1, 2].map(i => ({
       matchId: `notification-match-${i}`, sourceRevision: '2', heldEventId: 'notification-held', heldDateIso: '2026-01-01',

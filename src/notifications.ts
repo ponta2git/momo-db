@@ -27,7 +27,8 @@ export interface OcrCompletedData {
 }
 
 export interface AnalysisIdentity {
-  readonly jobId: string;
+  // Stable even after the producing job/attempt is removed by history cleanup.
+  readonly artifactId: string;
   // Decimal strings preserve PostgreSQL bigint precision across JSON consumers.
   readonly inputRevision: string;
   readonly algorithmVersion: string;
@@ -84,6 +85,7 @@ export interface AnalysisCompletedData {
   // Only added/changed matches represented by this publication, never a live query.
   readonly matches: readonly AnalysisNotificationMatch[];
   readonly overall: Four<RankComparison>;
+  // Affected old/new seasons; all current seasons only when the match set is unchanged.
   readonly seasons: readonly {
     readonly seasonId: string;
     readonly seasonName: string;
