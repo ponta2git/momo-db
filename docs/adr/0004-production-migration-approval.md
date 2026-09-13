@@ -32,7 +32,7 @@ approval は対象 Git commit に対して行う。却下、未承認、branch p
 
 - master へ入っただけでは production schema は変わらない。consumer deploy は migration の承認・完了を待つ。
 - approver は custom SQL、データ保持、backup、consumer compatibility、対象 commit を確認する。
-- CI 自体を復旧できない緊急時だけ、同じ変更内容への明示承認と同等の preflight を揃え、README の手動手順を使う。
+- CI 自体を復旧できない緊急時だけ、同じ変更内容への明示承認と同等の preflight を揃え、[development.md の緊急適用手順](../development.md#ci-を復旧できない場合の緊急適用)を使う。
 - `production-db` environment の required reviewer と branch policy は migration safety の一部であり、workflow YAML だけでは代替できない。
 
 ## Alternatives considered

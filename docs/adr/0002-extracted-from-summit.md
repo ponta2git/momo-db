@@ -10,6 +10,8 @@ tags: [db, ops]
 
 # ADR-0002: DB 管理を summit から momo-db リポジトリに分離
 
+> 所有権分離の判断は継続する。以下の本番手動適用は分離時点の運用であり、その後 [ADR-0003](0003-github-actions-ci-neon-migration.md)、[ADR-0004](0004-production-migration-approval.md) で変更された。現在の実行順と consumer 連携は [development.md](../development.md) に従う。
+
 ## TL;DR
 
 momo-result プロジェクトとの DB 共有に備え、スキーマ定義・migration・drizzle.config.ts を summit リポジトリから本リポジトリ（momo-db）に移設した。summit は `"@momo/db": "file:../momo-db"` でパッケージ参照する。

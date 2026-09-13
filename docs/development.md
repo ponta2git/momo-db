@@ -2,6 +2,8 @@
 
 この文書は、momo-db の schema と migration を変更する際の単一の規範文書である。momo-result、summit を含む共有 DB の利用側から momo-db を変更する場合も、実装前にこの文書を読む。
 
+`src/schema.ts`、`drizzle/`、Drizzle の設定・script、DB の schema / migration state の変更に適用する。通知の業務契約と consumer の責務は [共有通知契約](discord-notifications.md)、セットアップとコマンド一覧は [README](../README.md) を参照する。ADR と実施計画は当時の判断を記録するものであり、本書の手順を上書きしない。
+
 ## 1. 所有境界
 
 - Drizzle が表現できる table、column、constraint、index などの宣言元は `src/schema.ts` とする。
@@ -62,7 +64,7 @@ schema DDL と custom SQL の両方が必要なら、一つの migration に混�
 
 ## 5. 必須の検証
 
-最低限、次を実行する。
+本書の対象となる DB 変更では、最低限、次を実行する。文書のみの変更には DB 接続や migration の生成・適用を要求せず、参照先、記載した手順と実装の整合、差分を確認する。
 
 ```bash
 pnpm build
@@ -77,7 +79,7 @@ pnpm db:check
 4. lock、長時間 transaction、identifier の切り詰め、function の `search_path`、trigger の競合を SQL review する。
 5. 影響する summit / momo-result の build、型検査、DB integration test を通す。
 
-共有 Discord 通知に関わる変更は、[通知契約](discord-notifications.md#導入順序と検証) の専用 DB 設定で `pnpm test:prepare`、`pnpm test:integration`、`pnpm test:migrations` を実行する。後者は代表的な旧データを backup / restore して新 tail を適用し、開催・試合と通知状態を比較する。CI でも同じ PostgreSQL 18 の検証を build / check と合わせて実行する。
+共有 Discord 通知に関わるコード・DB 変更は、[通知契約](discord-notifications.md#専用-db-での検証) の専用 DB 設定で `pnpm test:prepare`、`pnpm test:integration`、`pnpm test:migrations` を実行する。後者は代表的な旧データを backup / restore して新 tail を適用し、開催・試合と通知状態を比較する。CI でも同じ PostgreSQL 18 の検証を build / check と合わせて実行する。
 
 保存対象の `summit-postgres` や named volume を fresh-DB 検証に流用しない。fresh 検証には削除可能な一時 DB を使う。
 
@@ -100,7 +102,17 @@ pnpm db:migrate
 
 停止切替でも既存 migration の不変性、schema / custom SQL の分離、必須 gate、本番 approval / preflight は維持する。再開前に戻す場合は DB と consumer を整合する組合せへ復元し、再開後は新規データを守る forward fix を原則とする。
 
-master push では CI が build と `drizzle-kit check` を行う。`drizzle/` に変更がある場合は protected environment `production-db` で対象 commit の承認を待ち、承認後に接続 preflight と migration を直列実行する。通常運用で承認や preflight を迂回しない。CI 自体を復旧できない緊急時は、同じ変更内容への明示承認、backup、接続 preflight を揃えた場合だけ README の手動手順を使う。
+master push では CI が build と `drizzle-kit check`、通知契約と既存 DB 保全のテストを行う。`drizzle/` に変更がある場合は protected environment `production-db` で対象 commit の承認を待ち、承認後に接続 preflight と migration を直列実行する。通常運用で承認や preflight を迂回しない。
+
+### CI を復旧できない場合の緊急適用
+
+CI 自体を復旧できない緊急時に限り、同じ変更内容への明示承認と復元確認済み backup を揃え、承認対象 commit から手動適用できる。`DIRECT_URL` は実値を表示せず安全に環境変数へ注入し、preflight が成功した場合だけ migrate を実行する。
+
+```bash
+pnpm db:preflight:ci && pnpm db:migrate:ci
+```
+
+適用後は対象 DB の migration 履歴と consumer の動作を確認する。接続情報の更新だけで復旧できる場合は[接続先更新手順](ops/neon-production-connection-rotation.md)で元の CI run を復旧する。
 
 ## 7. Rollback / recovery
 
@@ -118,6 +130,8 @@ Drizzle Kit にこの repository 用の down migration はない。共有済み�
 通常の rollback に `docker compose down -v` や volume 削除を使わない。
 
 ## 8. 完了条件
+
+以下は migration を含む変更の完了条件である。それ以外の変更には第 5 節の該当する検証を適用する。
 
 - schema change と custom SQL が正しい migration に分離されている。
 - migration SQL と metadata が対応し、適用済み履歴を改変していない。

@@ -1,8 +1,10 @@
-# Neon production 接続先の更新
+# Neon production 接続先の登録・更新
 
 Neon project、production branch、または DB role を再作成・ローテーションしたときは、
 GitHub Environment `CI Actions` の `DIRECT_URL` も同じ作業内で更新する。
 Neon 側の変更だけでは GitHub Secret は更新されない。
+
+初回登録にもこの手順を使う。本書は接続情報の運用手順であり、migration の承認条件・release 順序は [development.md 第 6 節](../development.md#6-適用と-release-順序)に従う。Secret の保存先は `CI Actions`、migration の承認先は `production-db` であり、役割が異なる。
 
 ## 手順
 
@@ -22,8 +24,9 @@ Neon 側の変更だけでは GitHub Secret は更新されない。
    gh secret list --repo ponta2git/momo-db --env "CI Actions" --json name,updatedAt
    ```
 
-7. 失敗した GitHub Actions run を rerun し、`Verify migration connection` と
-   `Run migration` がともに成功することを確認する。
+7. 初回登録では次の対象 run、接続更新では失敗した元の run を確認する。
+   migration を再実行する場合は、対象 commit の承認と release 条件を確認してから元の run を rerun し、
+   `Verify migration connection` と `Run migration` がともに成功することを確認する。
 8. production DB の `drizzle.__drizzle_migrations` を読み取り専用で確認し、
    対象 migration が記録されていることを確認する。
 

@@ -126,7 +126,13 @@ Summit は終端から DELIVERED 7 日、FAILED / CANCELLED 30 日を過ぎた p
 
 旧 result に部分計画があり delivery_context が null の場合、Summit は宛先を推測せず unsupported_renderer にする。保持中の旧 renderer と宛先を特定できる回復版を用意するまで配送を再開しない。attendance はこの context を必要としない。
 
+### 専用 DB での検証
+
 検証は保存対象 compose volume を使わず、専用 PostgreSQL 18 container と `momo_db_test_*` DB を使う。`MOMO_DB_TEST_HOST` は localhost / 127.0.0.1 のみ。
+
+テスト専用に作成した container であることと、`MOMO_DB_TEST_HOST` / `MOMO_DB_TEST_PORT` と `MOMO_DB_TEST_CONTAINER` が同じ container を指すことを確認する。host と DB 名の検査だけでは隔離を保証しない。`test:integration` は fixture を `TRUNCATE ... CASCADE` で初期化し、`test:migrations` は指定 container 内に一時 DB を作成・削除する。
+
+この隔離条件を満たすテストは実 Discord 送信を行わない。依頼に必要な専用 container の準備、テスト実行、変更に起因する失敗の修正・再実行、自身が作成した一時資源の後始末は、都度の承認を待たずに進められる。
 
 ```bash
 export MOMO_DB_TEST_DATABASE=momo_db_test_notifications
