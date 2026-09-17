@@ -323,6 +323,34 @@
       "when": 1788960443434,
       "tag": "0045_application-notification-policy",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1789653691919,
+      "tag": "0046_prepare-analysis-v5-contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789653722102,
+      "tag": "0047_analysis-v5-contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1789653737263,
+      "tag": "0048_extend-analysis-publication-contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1789653793456,
+      "tag": "0049_initialize-empty-series-analysis-v5",
+      "breakpoints": true
     }
   ]
 }

@@ -136,7 +136,7 @@ test('backup/restore plus the new migration tail preserves held history and all 
       WHERE notification_id = 'migration-notification-ended-linked' AND part_no = 0`;
     assert.equal(delivered.delivered_message_id, 'migration-discord-message');
     assert.equal((await copy`SELECT to_regclass('public.discord_outbox') AS old`)[0].old, null);
-    assert.equal((await copy`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`)[0].n, 46);
+    assert.equal((await copy`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`)[0].n, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     // Existing migration contents/hashes are not changed by the tail.
     assert.deepEqual(await copy`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id LIMIT 41`,
       await original`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`);
