@@ -10,7 +10,7 @@ tags: [ci, ops, db]
 
 # ADR-0003: GitHub Actions で CI + Neon migration の自動化
 
-> 2026-08-11: production migration の無承認自動適用は [ADR-0004](./0004-production-migration-approval.md) により置き換えられた。
+> 2026-08-11: production migration の無承認自動適用は [ADR-0004](./0004-production-migration-approval.md) により置き換えられた。以下は当時の構成・手動適用の記録であり、現在の作業には [development.md](../development.md) を使う。
 
 ## TL;DR
 

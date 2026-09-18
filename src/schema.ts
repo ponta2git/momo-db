@@ -985,12 +985,12 @@ export const seriesAnalysisReleaseState = pgTable(
     singletonKey: text("singleton_key").primaryKey().default("current"),
     algorithmVersion: text("algorithm_version")
       .notNull()
-      .default("series-analysis-v4"),
+      .default("series-analysis-v5"),
     artifactSchemaVersion: integer("artifact_schema_version")
       .notNull()
-      .default(2),
+      .default(3),
     validationContractId: text("validation_contract_id").default(
-      "series-analysis-artifact-v2-full-validation-v1"
+      "series-analysis-artifact-v3-full-validation-v1"
     ),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -1935,7 +1935,8 @@ function checkSeriesAnalysisValidationSchema(
 ) {
   return check(
     name,
-    sql`${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR ${artifactSchemaVersion} = 2`
+    sql`(${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR ${artifactSchemaVersion} = 2)
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v3-full-validation-v1' OR ${artifactSchemaVersion} = 3)`
   );
 }
 

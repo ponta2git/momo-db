@@ -10,6 +10,8 @@ tags: [db, ops]
 
 # ADR-0001: Neon PostgreSQL + Drizzle を共有 DB スタックとして採用
 
+> スタック採用の判断記録。以下の接続設定・実行順は採用時点の説明であり、現在の生成・検証・適用・復旧は [development.md](../development.md) に従う。production migration の承認経路は [ADR-0004](0004-production-migration-approval.md) で更新されている。
+
 ## TL;DR
 
 discord bot プロジェクト群（summit / momo-result）の共有 DB として Neon PostgreSQL 18 を採用し、スキーマ管理・migration ツールに Drizzle ORM + drizzle-kit を使う。
