@@ -1,0 +1,2 @@
+CREATE INDEX "series_analysis_job_requests_operation_idx" ON "series_analysis_job_requests" USING btree ("operation_request_id") WHERE "series_analysis_job_requests"."operation_request_id" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "series_analysis_job_requests_campaign_idx" ON "series_analysis_job_requests" USING btree ("campaign_id") WHERE "series_analysis_job_requests"."campaign_id" IS NOT NULL;

@@ -351,6 +351,20 @@
       "when": 1789653793456,
       "tag": "0049_initialize-empty-series-analysis-v5",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789784423947,
+      "tag": "0050_analysis-request-job-index",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1789785065087,
+      "tag": "0051_analysis-request-owner-indexes",
+      "breakpoints": true
     }
   ]
 }

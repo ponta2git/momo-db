@@ -1429,6 +1429,15 @@ export const seriesAnalysisJobRequests = pgTable(
     index("series_analysis_job_requests_pending_title_idx")
       .on(table.gameTitleId, table.acceptedAt, table.id)
       .where(sql`${table.status} IN ('pending','assigned')`),
+    index("series_analysis_job_requests_operation_idx")
+      .on(table.operationRequestId)
+      .where(sql`${table.operationRequestId} IS NOT NULL`),
+    index("series_analysis_job_requests_campaign_idx")
+      .on(table.campaignId)
+      .where(sql`${table.campaignId} IS NOT NULL`),
+    index("series_analysis_job_requests_job_idx")
+      .on(table.assignedJobId, table.acceptedAt, table.id)
+      .where(sql`${table.assignedJobId} IS NOT NULL`),
     index("series_analysis_job_requests_attempt_idx")
       .on(table.assignedAttemptId)
       .where(sql`${table.assignedAttemptId} IS NOT NULL`),
