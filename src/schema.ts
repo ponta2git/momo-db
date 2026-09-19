@@ -1945,7 +1945,8 @@ function checkSeriesAnalysisValidationSchema(
   return check(
     name,
     sql`(${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR ${artifactSchemaVersion} = 2)
-      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v3-full-validation-v1' OR ${artifactSchemaVersion} = 3)`
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v3-full-validation-v1' OR ${artifactSchemaVersion} = 3)
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v4-full-validation-v1' OR ${artifactSchemaVersion} = 4)`
   );
 }
 
