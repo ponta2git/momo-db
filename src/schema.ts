@@ -1043,6 +1043,10 @@ export const seriesAnalysisTitleStates = pgTable(
     lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
     currentArtifactId: text("current_artifact_id"),
     previousArtifactId: text("previous_artifact_id"),
+    notificationBaselineState: text("notification_baseline_state")
+      .notNull()
+      .default("unknown"),
+    notificationBaselineArtifactId: text("notification_baseline_artifact_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1080,6 +1084,18 @@ export const seriesAnalysisTitleStates = pgTable(
       "series_analysis_title_states_artifact_pointer_distinct_check",
       sql`${table.currentArtifactId} IS NULL OR ${table.previousArtifactId} IS NULL OR ${table.currentArtifactId} <> ${table.previousArtifactId}`
     ),
+    check(
+      "series_analysis_title_states_notification_baseline_check",
+      sql`(${table.notificationBaselineState} = 'artifact' AND ${table.notificationBaselineArtifactId} IS NOT NULL) OR (${table.notificationBaselineState} IN ('initial', 'unknown') AND ${table.notificationBaselineArtifactId} IS NULL)`
+    ),
+    foreignKey({
+      columns: [table.notificationBaselineArtifactId, table.gameTitleId],
+      foreignColumns: [
+        seriesAnalysisArtifacts.id,
+        seriesAnalysisArtifacts.gameTitleId
+      ],
+      name: "series_analysis_title_states_notification_baseline_artifact_fk"
+    }).onDelete("restrict"),
     foreignKey({
       columns: [table.currentArtifactId, table.gameTitleId],
       foreignColumns: [
