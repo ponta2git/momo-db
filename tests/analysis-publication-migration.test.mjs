@@ -57,11 +57,11 @@ async function tuple(db) {
   return { ...row };
 }
 
-async function stage(db, id, schema, algorithm) {
+async function stage(db, id, schema, algorithm, title = 'analysis-title') {
   await db`INSERT INTO series_analysis_artifacts(id, game_title_id, input_revision, algorithm_version,
     artifact_schema_version, source_input_checksum, root_checksum, aggregate_chunk_count,
     review_chunk_count, drilldown_chunk_count, match_context_chunk_count, encoded_bytes, decoded_bytes)
-    VALUES (${id}, 'analysis-title', 0, ${algorithm}, ${schema}, ${checksum}, ${checksum}, 1, 0, 0, 0, 2, 2)`;
+    VALUES (${id}, ${title}, 0, ${algorithm}, ${schema}, ${checksum}, ${checksum}, 1, 0, 0, 0, 2, 2)`;
   await db`INSERT INTO series_analysis_scope_aggregate_artifacts(artifact_id, scope_key, scope_kind,
     payload, encoded_bytes, decoded_bytes, item_count, nesting_depth, checksum)
     VALUES (${id}, 'overall', 'overall', ${payload}, 2, 2, 0, 1, ${checksum})`;
@@ -142,7 +142,9 @@ for (const [lastIndex, baseline] of [[45, oldTuple], [51, newTuple]]) {
         const after = await stored(copy);
         assert.deepEqual(after.headers, before.headers);
         assert.deepEqual(after.chunks, before.chunks);
-        assert.deepEqual(after.states, before.states);
+        assert.deepEqual(after.states.map(({ notification_baseline_state, notification_baseline_artifact_id, ...state }) => state), before.states);
+        assert.equal(after.states[0].notification_baseline_state, 'artifact');
+        assert.equal(after.states[0].notification_baseline_artifact_id, 'old');
         assert.deepEqual(after.history.slice(0, before.history.length), before.history);
         await stage(copy, 'new', 4, presentationTuple.algorithm_version);
         await publish(copy, 'new', presentationContract);
@@ -171,3 +173,96 @@ for (const registry of ['reader', 'worker']) {
     });
   });
 }
+
+async function schemaMechanisms(db) {
+  const [row] = await db`SELECT
+    (SELECT jsonb_agg(pg_get_functiondef(p.oid) ORDER BY p.proname)
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND NOT EXISTS
+       (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.classid = 'pg_proc'::regclass AND d.deptype = 'e')) AS functions,
+    (SELECT jsonb_agg(pg_get_triggerdef(t.oid) ORDER BY c.relname, t.tgname)
+     FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND NOT t.tgisinternal) AS triggers,
+    (SELECT jsonb_agg(indexdef ORDER BY tablename, indexname) FROM pg_indexes WHERE schemaname = 'public') AS indexes`;
+  return { ...row };
+}
+
+test('notification baseline seeds only attested current publications and preserves restored history', async () => {
+  await withDatabase(async (source, name) => {
+    await migratePrevious(source, 53);
+    for (const title of ['analysis-title', 'empty-title', 'detached-title', 'previous-only-title', 'unattested-title']) {
+      await source`INSERT INTO game_titles(id, name, layout_family) VALUES (${title}, ${title}, 'momotetsu_2')`;
+    }
+    await source`UPDATE series_analysis_title_states SET artifact_schema_version = 4, validation_contract_id = ${presentationContract}`;
+    for (const title of ['analysis-title', 'detached-title', 'previous-only-title']) {
+      await stage(source, title + '-artifact', 4, presentationTuple.algorithm_version, title);
+      await publish(source, title + '-artifact', presentationContract);
+    }
+    await source`UPDATE series_analysis_title_states SET current_artifact_id = 'analysis-title-artifact' WHERE game_title_id = 'analysis-title'`;
+    // A queued mutation must retain the last published input, not appear initial.
+    await source`UPDATE series_analysis_title_states SET input_revision = 1, pending_work = true WHERE game_title_id = 'analysis-title'`;
+    await source`UPDATE series_analysis_title_states SET previous_artifact_id = 'previous-only-title-artifact' WHERE game_title_id = 'previous-only-title'`;
+    await stage(source, 'unattested-artifact', 2, oldTuple.algorithm_version, 'unattested-title');
+    await publish(source, 'unattested-artifact', null);
+    await source`UPDATE series_analysis_title_states SET algorithm_version = ${oldTuple.algorithm_version},
+      artifact_schema_version = 2, validation_contract_id = NULL, current_artifact_id = 'unattested-artifact'
+      WHERE game_title_id = 'unattested-title'`;
+    const before = await stored(source);
+    const mechanisms = await schemaMechanisms(source);
+    const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', name]);
+    await withDatabase(async (copy, restored) => {
+      docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
+      assert.deepEqual(await stored(copy), before);
+      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      const after = await stored(copy);
+      assert.deepEqual(after.headers, before.headers);
+      assert.deepEqual(after.chunks, before.chunks);
+      assert.deepEqual(after.states.map(({ notification_baseline_state, notification_baseline_artifact_id, ...state }) => state), before.states);
+      assert.deepEqual(after.history.slice(0, before.history.length), before.history);
+      assert.deepEqual(await schemaMechanisms(copy), mechanisms, 'No notification function, trigger or index is introduced');
+      for (const state of after.states) {
+        const known = state.game_title_id === 'analysis-title';
+        assert.equal(state.notification_baseline_state, known ? 'artifact' : 'unknown');
+        assert.equal(state.notification_baseline_artifact_id, known ? 'analysis-title-artifact' : null);
+      }
+      const constraints = await copy`SELECT conname FROM pg_constraint
+        WHERE conrelid = 'series_analysis_title_states'::regclass AND contype IN ('c', 'f')
+          AND conname LIKE '%notification_baseline%' ORDER BY conname`;
+      assert.deepEqual(constraints.map(c => c.conname), [
+        'series_analysis_title_states_notification_baseline_artifact_fk',
+        'series_analysis_title_states_notification_baseline_check'
+      ]);
+    });
+  });
+});
+
+test('notification baseline shape and same-title reference survive UI pointer changes and protect retained input', async () => {
+  await withDatabase(async db => {
+    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await db`INSERT INTO game_titles(id, name, layout_family) VALUES ('analysis-title', 'Analysis title', 'momotetsu_2'), ('other-title', 'Other title', 'momotetsu_2')`;
+    const [initial] = await db`SELECT notification_baseline_state, notification_baseline_artifact_id FROM series_analysis_title_states WHERE game_title_id = 'analysis-title'`;
+    assert.deepEqual({ ...initial }, { notification_baseline_state: 'unknown', notification_baseline_artifact_id: null });
+    await assert.rejects(db`UPDATE series_analysis_title_states SET notification_baseline_state = NULL WHERE game_title_id = 'analysis-title'`, { code: '23502' });
+    await db`UPDATE series_analysis_title_states SET notification_baseline_state = 'initial' WHERE game_title_id = 'analysis-title'`;
+    await stage(db, 'baseline', 3, newTuple.algorithm_version);
+    await publish(db, 'baseline', newContract);
+    for (const [state, id] of [['artifact', null], ['initial', 'baseline'], ['unknown', 'baseline'], ['invalid', null]]) {
+      await assert.rejects(db`UPDATE series_analysis_title_states SET notification_baseline_state = ${state}, notification_baseline_artifact_id = ${id}
+        WHERE game_title_id = 'analysis-title'`, { code: '23514' });
+    }
+    await assert.rejects(db`UPDATE series_analysis_title_states SET notification_baseline_state = 'artifact', notification_baseline_artifact_id = 'baseline'
+      WHERE game_title_id = 'other-title'`, { code: '23503' });
+    await db`UPDATE series_analysis_title_states SET notification_baseline_state = 'artifact', notification_baseline_artifact_id = 'baseline', current_artifact_id = 'baseline'
+      WHERE game_title_id = 'analysis-title'`;
+    await db`UPDATE series_analysis_title_states SET current_artifact_id = NULL, previous_artifact_id = NULL, artifact_schema_version = 4,
+      validation_contract_id = ${presentationContract} WHERE game_title_id = 'analysis-title'`;
+    const [retained] = await db`SELECT notification_baseline_state, notification_baseline_artifact_id FROM series_analysis_title_states WHERE game_title_id = 'analysis-title'`;
+    assert.deepEqual({ ...retained }, { notification_baseline_state: 'artifact', notification_baseline_artifact_id: 'baseline' });
+    await assert.rejects(db`DELETE FROM series_analysis_artifacts WHERE id = 'baseline'`, { code: '23001' });
+    await assert.rejects(db`UPDATE series_analysis_title_states SET notification_baseline_artifact_id = NULL WHERE game_title_id = 'analysis-title'`, { code: '23514' });
+    await db`UPDATE series_analysis_title_states SET notification_baseline_state = 'unknown', notification_baseline_artifact_id = NULL WHERE game_title_id = 'analysis-title'`;
+    await db`DELETE FROM series_analysis_artifacts WHERE id = 'baseline'`;
+    assert.equal((await db`SELECT count(*)::int AS n FROM series_analysis_scope_aggregate_artifacts WHERE artifact_id = 'baseline'`)[0].n, 0);
+  });
+});
