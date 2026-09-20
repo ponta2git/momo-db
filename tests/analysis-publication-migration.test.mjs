@@ -18,6 +18,8 @@ const oldContract = 'series-analysis-artifact-v2-full-validation-v1';
 const newContract = 'series-analysis-artifact-v3-full-validation-v1';
 const oldTuple = { algorithm_version: 'series-analysis-v4', artifact_schema_version: 2, validation_contract_id: oldContract };
 const newTuple = { algorithm_version: 'series-analysis-v5', artifact_schema_version: 3, validation_contract_id: newContract };
+const presentationContract = 'series-analysis-artifact-v4-full-validation-v1';
+const presentationTuple = { ...newTuple, artifact_schema_version: 4, validation_contract_id: presentationContract };
 const payload = Buffer.from('{}');
 const checksum = 'sha256:' + createHash('sha256').update(payload).digest('hex');
 
@@ -37,13 +39,13 @@ async function withDatabase(run) {
   finally { await db.end(); docker(['dropdb', '-U', username, name]); }
 }
 
-async function migratePrevious(db) {
+async function migratePrevious(db, lastIndex = 45) {
   const folder = mkdtempSync(join(tmpdir(), 'momo-db-analysis-prefix-'));
   try {
     cpSync('./drizzle', folder, { recursive: true });
     const path = join(folder, 'meta', '_journal.json');
     const journal = JSON.parse(readFileSync(path, 'utf8'));
-    journal.entries = journal.entries.filter(entry => entry.idx <= 45);
+    journal.entries = journal.entries.filter(entry => entry.idx <= lastIndex);
     writeFileSync(path, JSON.stringify(journal));
     await migrate(drizzle(db), { migrationsFolder: folder });
   } finally { rmSync(folder, { recursive: true, force: true }); }
@@ -77,19 +79,20 @@ async function stored(db) {
   return { ...rows };
 }
 
-test('fresh migrations establish the exact active tuple before any fixture mutation', async () => {
+test('fresh migrations preserve the baseline while allowing all supported publication contracts', async () => {
   await withDatabase(async db => {
     await migrate(drizzle(db), { migrationsFolder: './drizzle' });
     assert.deepEqual(await tuple(db), newTuple);
     await db`INSERT INTO game_titles(id, name, layout_family) VALUES ('analysis-title', 'Analysis title', 'momotetsu_2')`;
     const [state] = await db`SELECT algorithm_version, artifact_schema_version, validation_contract_id FROM series_analysis_title_states`;
     assert.deepEqual({ ...state }, newTuple);
-    for (const [schema, contract] of [[2, newContract], [3, oldContract]]) {
+    for (const [schema, contract] of [[2, newContract], [3, oldContract], [2, presentationContract], [3, presentationContract], [4, oldContract], [4, newContract]]) {
       await assert.rejects(db`UPDATE series_analysis_release_state SET artifact_schema_version = ${schema}, validation_contract_id = ${contract}`,
         { code: '23514' });
     }
     for (const [id, schema, algorithm, contract] of [
-      ['old', 2, oldTuple.algorithm_version, oldContract], ['new', 3, newTuple.algorithm_version, newContract]
+      ['old', 2, oldTuple.algorithm_version, oldContract], ['new', 3, newTuple.algorithm_version, newContract],
+      ['presentation', 4, presentationTuple.algorithm_version, presentationContract]
     ]) {
       await stage(db, id, schema, algorithm);
       // Staging resources remain editable before attestation.
@@ -103,41 +106,54 @@ test('fresh migrations establish the exact active tuple before any fixture mutat
       await assert.rejects(db`DELETE FROM series_analysis_artifacts WHERE id = ${id}`, { code: '23001' });
     }
     await assert.rejects(db`UPDATE series_analysis_title_states SET previous_artifact_id = 'old'`, /attested publication/);
-    await stage(db, 'unsealed', 3, newTuple.algorithm_version);
-    await assert.rejects(db`UPDATE series_analysis_artifacts SET status = 'published', published_at = clock_timestamp() WHERE id = 'unsealed'`, /publication/);
-    await assert.rejects(db`UPDATE series_analysis_artifacts SET validation_contract_id = ${oldContract} WHERE id = 'unsealed'`, /seal-only/);
-    await assert.rejects(db`UPDATE series_analysis_title_states SET current_artifact_id = 'unsealed'`, /attested published/);
+    for (const schema of [3, 4, 5]) {
+      const id = `unsealed-${schema}`;
+      await stage(db, id, schema, newTuple.algorithm_version);
+      await assert.rejects(db`UPDATE series_analysis_artifacts SET status = 'published', published_at = clock_timestamp() WHERE id = ${id}`, /publication/);
+      await assert.rejects(db`UPDATE series_analysis_artifacts SET validation_contract_id = ${oldContract} WHERE id = ${id}`, /seal-only/);
+      await assert.rejects(db`UPDATE series_analysis_title_states SET current_artifact_id = ${id}`, /attested published/);
+    }
+    const constraints = await db`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+      WHERE conname LIKE 'series_analysis_%_validation_schema_check'`;
+    assert.equal(constraints.length, 8);
+    assert.ok(constraints.every(row => row.definition.includes(presentationContract)));
     await db`UPDATE series_analysis_title_states SET current_artifact_id = NULL`;
-    await db`DELETE FROM series_analysis_artifacts WHERE id IN ('old', 'new')`;
-    assert.equal((await db`SELECT count(*)::int AS n FROM series_analysis_scope_aggregate_artifacts WHERE artifact_id IN ('old', 'new')`)[0].n, 0);
+    await db`DELETE FROM series_analysis_artifacts WHERE id IN ('old', 'new', 'presentation')`;
+    assert.equal((await db`SELECT count(*)::int AS n FROM series_analysis_scope_aggregate_artifacts WHERE artifact_id IN ('old', 'new', 'presentation')`)[0].n, 0);
   });
 });
 
-test('upgrade of a restored old publication preserves all rows, pointers and applied hashes', async () => {
-  await withDatabase(async (source, name) => {
-    await migratePrevious(source);
-    assert.deepEqual(await tuple(source), oldTuple);
-    await source`INSERT INTO game_titles(id, name, layout_family) VALUES ('analysis-title', 'Analysis title', 'momotetsu_2')`;
-    await stage(source, 'old', 2, oldTuple.algorithm_version);
-    await publish(source, 'old', oldContract);
-    await source`UPDATE series_analysis_title_states SET current_artifact_id = 'old'`;
-    const before = await stored(source);
-    const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', name]);
-    await withDatabase(async (copy, restored) => {
-      docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
-      assert.deepEqual(await stored(copy), before);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-      assert.deepEqual(await tuple(copy), oldTuple);
-      const after = await stored(copy);
-      assert.deepEqual(after.headers, before.headers);
-      assert.deepEqual(after.chunks, before.chunks);
-      assert.deepEqual(after.states, before.states);
-      assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-      await stage(copy, 'new', 3, newTuple.algorithm_version);
-      await publish(copy, 'new', newContract);
+for (const [lastIndex, baseline] of [[45, oldTuple], [51, newTuple]]) {
+  test(`upgrade of a restored schema ${baseline.artifact_schema_version} publication preserves rows, pointers and applied hashes`, async () => {
+    await withDatabase(async (source, name) => {
+      await migratePrevious(source, lastIndex);
+      assert.deepEqual(await tuple(source), baseline);
+      await source`INSERT INTO game_titles(id, name, layout_family) VALUES ('analysis-title', 'Analysis title', 'momotetsu_2')`;
+      await stage(source, 'old', baseline.artifact_schema_version, baseline.algorithm_version);
+      await publish(source, 'old', baseline.validation_contract_id);
+      await source`UPDATE series_analysis_title_states SET current_artifact_id = 'old'`;
+      const before = await stored(source);
+      const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', name]);
+      await withDatabase(async (copy, restored) => {
+        docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
+        assert.deepEqual(await stored(copy), before);
+        await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+        assert.deepEqual(await tuple(copy), baseline);
+        const after = await stored(copy);
+        assert.deepEqual(after.headers, before.headers);
+        assert.deepEqual(after.chunks, before.chunks);
+        assert.deepEqual(after.states, before.states);
+        assert.deepEqual(after.history.slice(0, before.history.length), before.history);
+        await stage(copy, 'new', 4, presentationTuple.algorithm_version);
+        await publish(copy, 'new', presentationContract);
+        await copy`UPDATE series_analysis_title_states SET algorithm_version = ${presentationTuple.algorithm_version},
+          artifact_schema_version = 4, validation_contract_id = ${presentationContract}, current_artifact_id = 'new'
+          WHERE game_title_id = 'analysis-title'`;
+        await assert.rejects(copy`UPDATE series_analysis_title_states SET previous_artifact_id = 'old'`, /attested publication/);
+      });
     });
   });
-});
+}
 
 for (const registry of ['reader', 'worker']) {
   test(`empty operated database with stale draining ${registry} keeps its active tuple`, async () => {

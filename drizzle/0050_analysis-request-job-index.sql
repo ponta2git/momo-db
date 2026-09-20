@@ -1,0 +1,1 @@
+CREATE INDEX "series_analysis_job_requests_job_idx" ON "series_analysis_job_requests" USING btree ("assigned_job_id","accepted_at","id") WHERE "series_analysis_job_requests"."assigned_job_id" IS NOT NULL;
