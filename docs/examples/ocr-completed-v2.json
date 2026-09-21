@@ -1,0 +1,14 @@
+{
+  "notificationId": "result:ocr_completed:submission:00000000-0000-4000-8000-000000000024",
+  "kind": "ocr_completed",
+  "schemaVersion": 2,
+  "sourceJobId": "submission:00000000-0000-4000-8000-000000000024",
+  "occurredAt": "2026-01-01T00:00:00.000Z",
+  "settingsGeneration": "9007199254740993",
+  "data": {
+    "submissionId": "00000000-0000-4000-8000-000000000024",
+    "matchDraftId": "match-draft-24",
+    "context": {"gameTitleName": "桃太郎電鉄", "heldDateIso": "2026-01-01", "matchNoInEvent": 1},
+    "failures": [{"screenType": "incident_log", "reason": "ocr_timeout"}]
+  }
+}

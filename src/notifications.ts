@@ -1,6 +1,7 @@
 import type { ResultNotificationKind } from "./schema.js";
 
 export const DISCORD_NOTIFICATION_SCHEMA_VERSION = 1 as const;
+export const OCR_NOTIFICATION_SCHEMA_VERSION = 2 as const;
 export const DISCORD_NOTIFICATION_HASH_VERSION = "jsonb-numeric-sha256-v1" as const;
 
 /** The entire source ID must match, including rejecting a trailing line terminator. */
@@ -35,14 +36,19 @@ export interface NotificationContext {
   readonly matchNoInEvent: number | null;
 }
 
+export const OCR_SUBMISSION_FAILURE_REASONS = [
+  "admission_failed", "admission_timeout", "ocr_failed", "ocr_timeout", "cancelled"
+] as const;
+export type OcrSubmissionFailureReason = (typeof OCR_SUBMISSION_FAILURE_REASONS)[number];
+
 export interface OcrCompletedData {
+  readonly submissionId: string;
   readonly matchDraftId: string;
-  readonly ocrDraftId: string;
-  readonly imageId: string;
-  readonly screenType: "total_assets" | "revenue" | "incident_log";
-  readonly outcome: "succeeded" | "needs_review";
-  readonly summary: string;
   readonly context: NotificationContext;
+  readonly failures: readonly {
+    readonly screenType: "total_assets" | "revenue" | "incident_log";
+    readonly reason: OcrSubmissionFailureReason;
+  }[];
 }
 
 export interface AnalysisIdentity {
@@ -112,10 +118,10 @@ export interface AnalysisCompletedData {
   }[];
 }
 
-interface NotificationEnvelope<K extends ResultNotificationKind, D> {
+interface NotificationEnvelope<K extends ResultNotificationKind, D, V extends number = 1> {
   readonly notificationId: string;
   readonly kind: K;
-  readonly schemaVersion: typeof DISCORD_NOTIFICATION_SCHEMA_VERSION;
+  readonly schemaVersion: V;
   readonly sourceJobId: string;
   // RFC3339 UTC with milliseconds, e.g. YYYY-MM-DDTHH:mm:ss.sssZ.
   readonly occurredAt: string;
@@ -123,7 +129,7 @@ interface NotificationEnvelope<K extends ResultNotificationKind, D> {
   readonly data: D;
 }
 
-export type OcrCompletedNotification = NotificationEnvelope<"ocr_completed", OcrCompletedData>;
+export type OcrCompletedNotification = NotificationEnvelope<"ocr_completed", OcrCompletedData, typeof OCR_NOTIFICATION_SCHEMA_VERSION>;
 export type AnalysisCompletedNotification = NotificationEnvelope<"analysis_completed", AnalysisCompletedData>;
 export type DiscordResultNotification = OcrCompletedNotification | AnalysisCompletedNotification;
 

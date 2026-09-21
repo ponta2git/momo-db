@@ -8,6 +8,8 @@
 
 | テーブル | 責務 |
 | --- | --- |
+| `ocr_submissions` | 読み取り操作の所有者・下書き参照・ヒント・受付期限・終端状態 |
+| `ocr_submission_members` | 固定画像集合の種別・upload key hash・内容識別・登録 job または受付失敗 |
 | `discord_notifications` | 親、固定 payload、内容 hash、配送状態、初回描画の renderer / 部分数 / delivery_context |
 | `discord_notification_attendance` | 出欠アンケートの Session と revision / ordinal |
 | `discord_notification_results` | A/B の種別・元ジョブ・成功時刻・設定世代。元ジョブ一意性を永久保持 |
@@ -21,24 +23,34 @@
 
 ## 通知 ID と内容照合
 
-A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request では変更しない。`sourceJobId` は `^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`。A は画像単位の OCR ジョブ、B は成功した論理分析ジョブ。新しい手動分析ジョブは新しい ID。`(kind, source_job_id)` も一意とする。TypeScript の生成・受付・運用入口は `buildDiscordNotificationId` / `isNotificationSourceJobId` / `parseDiscordNotificationId` を共用し、末尾改行を含む部分一致を許可しない。既存 ID の内容照合は引き続き version 検証より先に行う。
+A/B は `result:<kind>:<sourceJobId>`。version、実行 attempt、HTTP request では変更しない。`sourceJobId` は `^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`。A は `submission:<canonical-lowercase-UUID>`、B は成功した論理分析ジョブ。新しい手動分析ジョブは新しい ID。`(kind, source_job_id)` も一意とする。TypeScript の生成・受付・運用入口は `buildDiscordNotificationId` / `isNotificationSourceJobId` / `parseDiscordNotificationId` を共用し、末尾改行を含む部分一致を許可しない。受付可能な組合せは A が schemaVersion 2、B が schemaVersion 1。種別と version の検証を既存 ID 照合より先に行い、旧 OCR v1 は duplicate も含めて拒否する。
 
 既存の `jsonb-numeric-sha256-v1` を維持する。Summit が生 JSON を PostgreSQL の組込み JSONB text 表現へ正規化し、文字列の外の数値だけ末尾小数ゼロを除き、UTF-8 の SHA-256 を計算する。JSON.parse / JSON.stringify の数値丸めを内容照合に使わない。array の順序、文字列、欠落と null の違いを保持する。producer は hash を送らない。
 
-同じ ID / 元ジョブと同じ内容は、取消・配送済み・本文整理済みでも既存行へ収束する。既存識別の照合を新規 version の検証より先に行い、異なる内容への差替えは 409。親 ID、family、種別、payload、hash、結果関連の識別はアプリから更新しない。
+同じ ID / 元ジョブと同じ内容は、取消・配送済み・本文整理済みでも既存行へ収束する。対応 version の既存識別を照合し、異なる内容への差替えは 409。親 ID、family、種別、payload、hash、結果関連の識別はアプリから更新しない。
 
-## v1 の固定 payload
+## 種別ごとの固定 payload
 
-完全な例は [OCR](examples/ocr-completed-v1.json) と [分析](examples/analysis-completed-v1.json)。例の ID・表示名は架空。
+完全な例は [OCR v2](examples/ocr-completed-v2.json) と [分析 v1](examples/analysis-completed-v1.json)。例の ID・表示名は架空。[旧 OCR v1](examples/ocr-completed-v1.json) は履歴保持の検証資材であり、新規受付・配送・再送の対象ではない。
 
-共通 envelope は `notificationId`、`kind`、`schemaVersion: 1`、`sourceJobId`、`occurredAt`、`settingsGeneration`、`data`。世代・分析 input revision・試合 source revision は精度を失わない十進文字列。成功時刻と試合日時は UTC の `YYYY-MM-DDTHH:mm:ss.sssZ`、開催日は `YYYY-MM-DD`。受付アプリは JSONB text 表現で 8 MiB を上限とし、本文を切り捨てない。
+共通 envelope は `notificationId`、`kind`、`schemaVersion`（A: 2、B: 1）、`sourceJobId`、`occurredAt`、`settingsGeneration`、`data`。世代・分析 input revision・試合 source revision は精度を失わない十進文字列。成功時刻と試合日時は UTC の `YYYY-MM-DDTHH:mm:ss.sssZ`、開催日は `YYYY-MM-DD`。受付アプリは JSONB text 表現で 8 MiB を上限とし、本文を切り捨てない。
 
 | data | 固定する内容 |
 | --- | --- |
-| A | 下書き・OCR・画像 ID、画像種別、succeeded / needs_review、要約、分かる範囲の作品名・開催日・試合番号 |
+| A | submissionId、matchDraftId、context（作品名・開催日・試合番号）、failures（失敗種別と理由のみ） |
 | B | 作品 ID・表示名、published / reused、前回と今回の分析識別、掲載試合、作品通算とシーズン通算 |
 | B 掲載試合 | 試合 ID・source revision・開催 ID / 日・番号・日時、マップ・シーズン・owner、4人の名前 / 順位 / 銀次回数、銀次合計、メモ全文または null |
 | B 集計 | 4人の memberId / 名前、前後の対象試合数 / 平均順位、丸め前の差分、比較状態 |
+
+
+A の `submissionId` は小文字 UUID。`failures` は 0–3 件で、画面種別は `total_assets` / `revenue` / `incident_log` の固定順・重複なし。
+理由は `admission_failed` / `admission_timeout` / `ocr_failed` / `ocr_timeout` / `cancelled` の固定語彙。
+成功・要確認の一覧、件数、OCR 生エラーは含めない。全件成功でも空の failures と完了・文脈・下書きリンクで一通知となる。
+作品名は producer が最大 200 文字と省略記号へ制限し、consumer は最大 201 文字を受け付ける。
+
+`ocr_submissions.match_draft_id` は削除後の再送照合のため FK を持たない。owner 参照は保持し、member は header と登録 job を参照する。
+同じ送出の種別・upload key hash、および job 対応は一意。pending は job/理由なし、registered は job のみ、failed は受付失敗理由のみを持つ。
+集合の作成・同一内容照合・失敗の意味・全員終端の判定はアプリが所有する。DB へ command 関数、trigger、通知 outbox は追加しない。
 
 分析識別は `artifactId`、`inputRevision`、`algorithmVersion`、`artifactSchemaVersion`、`validationContractId`。`sourceJobId` は今回成功した論理ジョブを表し、成果物を作った元ジョブの履歴が整理されても結果の識別・比較を続ける。保存済みの再利用通知は新しい通知 ID / `sourceJobId` と、前後で同じ成果物識別を持つ。現行 producer は入力差分のない再利用を通知しない。配送時に元ジョブや成果物を再検索しない。
 
@@ -70,7 +82,7 @@ producer は成功確定と同じ transaction で基準を進める。通知設�
 | Summit の result 受付 | 親・payload・結果関連・対象一覧と、PENDING または取消状態 |
 | momo-result API / Summit の設定変更 | ON/OFF、必要な世代加算、該当通知の未開始部分取消 |
 | momo-result の対象変更 | 下書き確定・取消・削除、試合削除と、その対象を含む通知の未開始部分取消 |
-| producer の成功 | 業務成功と、最後に取得した設定・世代・通知 snapshot の判断材料 |
+| Worker の送出確定 / 分析成功 | 業務終端と、最後に取得した設定・世代・通知 snapshot の判断材料 |
 | Summit の配送 command | claim、初回部分計画、開始、結果確定、失敗、期限回収の各短い更新 |
 | Summit の出欠 command | Session の遷移と対応する attendance intent |
 
@@ -92,7 +104,7 @@ ON/OFF が変わるたび世代を一つ進め、同じ値の保存では進め�
 
 Summit の `ResultNotificationsPort.setSetting` と専用運用 HTTP も同じ共有 gate・世代・取消契約を守る。利用者向け API の呼出先としては使わない。旧 `get/set_discord_notification_setting` 関数は存在しない。
 
-MOM-16 / 17 の producer は成功 transaction の末尾で result gate を取得し、設定行を組込み SELECT で読む。ON ならその世代と成功時点の固定内容を確保し、commit 後に HTTP を一度送る。OFF なら送らない。B のメモ・表示名は、業務更新と gate 取得後の一括 SELECT の保存済み snapshot で固定する。その SELECT 後から commit までの編集は取り込み保証の対象外であり、このために編集側へ排他を追加しない。設定取得失敗を理由に業務成功を失敗させない設計は SAVEPOINT 等で明示し、後から現在の設定を読んで送出し直さない。
+A は全画像の登録・処理終端が揃った送出確定 transaction、B は分析成功 transaction の末尾で result gate を取得し、設定行を組込み SELECT で読む。ON ならその世代と成功時点の固定内容を確保し、commit 後に HTTP を一度送る。OFF なら送らない。B のメモ・表示名は、業務更新と gate 取得後の一括 SELECT の保存済み snapshot で固定する。その SELECT 後から commit までの編集は取り込み保証の対象外であり、このために編集側へ排他を追加しない。設定取得失敗を理由に業務成功を失敗させない設計は SAVEPOINT 等で明示し、後から現在の設定を読んで送出し直さない。
 
 producer outbox、通知 HTTP の再試行・未受付通知の再構築、API の代理送出は追加しない。永続受付前の欠落は許容する。
 
@@ -107,7 +119,7 @@ Summit の `ResultNotificationsPort.receive(rawJson, now)` が command を実行
 | cancelled | 200、取消条件を満たす新規終端行 |
 | identity_conflict | 409、識別と内容が不一致 |
 | invalid_input | 400、不正入力 |
-| unsupported_version | 422、新規通知の未対応 version |
+| unsupported_version | 422、既存 ID を含む未対応の種別 / version |
 | payload_too_large | 413、上限超過 |
 | 受付不能 | 503、開始前・容量・DB・deadline 等 |
 
@@ -116,6 +128,8 @@ Summit の `ResultNotificationsPort.receive(rawJson, now)` が command を実行
 ## 配送・取消・回復
 
 Summit が保存 snapshot だけで描画し、初回に部分数・renderer version と `delivery_context={webOrigin, channelId}` を固定する。再試行は同じ本文・区切り・リンク・宛先で残りだけを配送する。部分番号は 0 始まりで連続し、N はそれ以前がすべて DELIVERED のときだけ開始する。
+
+OCR v2 の renderer version は 2、分析 v1 は 1。claim と次回配送時刻は同じ対応 version 条件を使い、旧 OCR v1 を配送待ちとして選ばない。旧履歴は保存し、明示 retry も拒否する。
 
 claim は送信開始ではない。各 Discord 呼出し直前に `begin` command が所有権・期限・取消・部分順序を検証して commit する。Discord I/O 中に DB transaction を保持しない。実際の呼出しごとに新しい clock を使う。
 
@@ -143,6 +157,10 @@ Summit は終端から DELIVERED 7 日、FAILED / CANCELLED 30 日を過ぎた p
 
 旧 result に部分計画があり delivery_context が null の場合、Summit は宛先を推測せず unsupported_renderer にする。保持中の旧 renderer と宛先を特定できる回復版を用意するまで配送を再開しない。attendance はこの context を必要としない。
 
+0056 は送出と固定 member の2表・宣言的な制約/index のみを追加する。既存 OCR job、通知 payload/hash/履歴は書き換えない。
+メンテナンスでは旧受付を閉じて OCR と旧未配送通知を排出し、排出未完了なら切替を中止する。全 writer / cleanup / dispatch を停止して復元確認済み baseline を確保し、DB・API/Web・Worker・Summit を一括切替する。
+再開後の新規業務書込みまたは外部送信より前なら対応 baseline 全体へ復旧できる。それ以降は新規データを保護した forward fix とし、旧 binary だけに戻さない。
+
 ### 専用 DB での検証
 
 検証は保存対象 compose volume を使わず、専用 PostgreSQL 18 container と `momo_db_test_*` DB を使う。`MOMO_DB_TEST_HOST` は localhost / 127.0.0.1 のみ。
@@ -164,3 +182,5 @@ pnpm test:migrations
 ```
 
 テスト用 password は必要な場合だけ安全に注入する。DB integration は native constraint・保存・業務関数撤去を検証する。業務遷移・競合・HTTP・配送は Summit、対象変更と取消の原子性は momo-result の integration test が保証する。migration test は 0040 / 0043 の2種類の prefix に代表履歴・全5状態・部分配送を作り、pg_dump / pg_restore 後に最新 tail を適用して全行・旧 hash・migration 履歴を比較する。自身の一時 DB だけを後始末し、失敗を skip としない。
+
+0056 の保持試験は直前の 0055 までの schema に旧 OCR v1 と業務履歴を保存し、dump/restore 後の tail 適用で既存全 table 行と migration hash が一致すること、新規2表が空であることを確認する。
