@@ -475,6 +475,66 @@ export const ocrJobs = pgTable(
   ]
 );
 
+export const OCR_SUBMISSION_STATUSES = ["open", "settled", "aborted"] as const;
+export type OcrSubmissionStatus = (typeof OCR_SUBMISSION_STATUSES)[number];
+
+// A fixed reading operation. Applications own admission, settlement and notification policy.
+// match_draft_id is retained identity, not a FK: deleting a draft must preserve replay fencing.
+export const ocrSubmissions = pgTable(
+  "ocr_submissions",
+  {
+    id: text("id").primaryKey(),
+    ownerAccountId: text("owner_account_id").notNull()
+      .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
+    matchDraftId: text("match_draft_id").notNull(),
+    ocrHintsJson: jsonb("ocr_hints_json").notNull().default(sql`'{}'::jsonb`),
+    status: text("status").notNull().default("open"),
+    admissionDeadline: timestamp("admission_deadline", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true })
+  },
+  (table) => [
+    index("ocr_submissions_status_id_idx").on(table.status, table.id),
+    index("ocr_submissions_status_deadline_idx").on(table.status, table.admissionDeadline, table.id),
+    index("ocr_submissions_owner_status_idx").on(table.ownerAccountId, table.status),
+    index("ocr_submissions_draft_status_idx").on(table.matchDraftId, table.status),
+    check("ocr_submissions_id_check", sql`length(${table.id}) = 36 AND ${table.id} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`),
+    check("ocr_submissions_hints_object_check", sql`jsonb_typeof(${table.ocrHintsJson}) = 'object'`),
+    check("ocr_submissions_status_check", sql`${table.status} IN ('open','settled','aborted')`),
+    check("ocr_submissions_terminal_shape_check", sql`(${table.status} = 'open' AND ${table.finishedAt} IS NULL) OR (${table.status} IN ('settled','aborted') AND ${table.finishedAt} IS NOT NULL)`),
+    check("ocr_submissions_time_check", sql`${table.admissionDeadline} > ${table.createdAt} AND (${table.finishedAt} IS NULL OR ${table.finishedAt} >= ${table.createdAt})`)
+  ]
+);
+
+export const OCR_SUBMISSION_MEMBER_STATUSES = ["pending", "registered", "failed"] as const;
+export type OcrSubmissionMemberStatus = (typeof OCR_SUBMISSION_MEMBER_STATUSES)[number];
+
+// OCR outcomes remain in ocr_jobs. No outcome counters, payload outbox or delivery state here.
+export const ocrSubmissionMembers = pgTable(
+  "ocr_submission_members",
+  {
+    submissionId: text("submission_id").notNull()
+      .references(() => ocrSubmissions.id, { onDelete: "cascade" }),
+    screenType: text("screen_type").notNull(),
+    uploadIdempotencyKeyHash: text("upload_idempotency_key_hash").notNull(),
+    imageSha256Hex: text("image_sha256_hex").notNull(),
+    imageByteLength: integer("image_byte_length").notNull(),
+    status: text("status").notNull().default("pending"),
+    jobId: text("job_id").references(() => ocrJobs.id, { onDelete: "restrict" }),
+    failureCode: text("failure_code")
+  },
+  (table) => [
+    primaryKey({ columns: [table.submissionId, table.screenType] }),
+    uniqueIndex("ocr_submission_members_job_unique").on(table.jobId),
+    uniqueIndex("ocr_submission_members_upload_unique").on(table.submissionId, table.uploadIdempotencyKeyHash),
+    index("ocr_submission_members_upload_hash_idx").on(table.uploadIdempotencyKeyHash),
+    check("ocr_submission_members_screen_check", sql`${table.screenType} IN ('total_assets','revenue','incident_log')`),
+    check("ocr_submission_members_hashes_check", sql`length(${table.uploadIdempotencyKeyHash}) = 64 AND ${table.uploadIdempotencyKeyHash} ~ '^[0-9a-f]{64}$' AND length(${table.imageSha256Hex}) = 64 AND ${table.imageSha256Hex} ~ '^[0-9a-f]{64}$'`),
+    check("ocr_submission_members_bytes_check", sql`${table.imageByteLength} BETWEEN 1 AND 3145728`),
+    check("ocr_submission_members_shape_check", sql`(${table.status} = 'pending' AND ${table.jobId} IS NULL AND ${table.failureCode} IS NULL) OR (${table.status} = 'registered' AND ${table.jobId} IS NOT NULL AND ${table.failureCode} IS NULL) OR (${table.status} = 'failed' AND ${table.jobId} IS NULL AND ${table.failureCode} IS NOT NULL AND ${table.failureCode} IN ('admission_failed','admission_timeout'))`)
+  ]
+);
+
 export const OCR_QUEUE_OUTBOX_STATUSES = [
   "PENDING",
   "IN_FLIGHT",

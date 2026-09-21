@@ -214,7 +214,9 @@ test('notification baseline seeds only attested current publications and preserv
     await withDatabase(async (copy, restored) => {
       docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
       assert.deepEqual(await stored(copy), before);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      // This assertion is specific to 0054/0055; later independent migrations
+      // may legitimately add their own structural indexes.
+      await migratePrevious(copy, 55);
       const after = await stored(copy);
       assert.deepEqual(after.headers, before.headers);
       assert.deepEqual(after.chunks, before.chunks);

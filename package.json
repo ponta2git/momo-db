@@ -18,9 +18,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test:integration": "node --test --test-concurrency=1 tests/discord-notifications.test.mjs",
+    "test:integration": "node --test --test-concurrency=1 tests/discord-notifications.test.mjs tests/ocr-submissions.test.mjs",
     "test:prepare": "node tests/migrate-test-database.mjs",
-    "test:migrations": "node --test tests/migration-preservation.test.mjs tests/analysis-publication-migration.test.mjs",
+    "test:migrations": "node --test tests/migration-preservation.test.mjs tests/analysis-publication-migration.test.mjs tests/ocr-submission-migration.test.mjs",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
