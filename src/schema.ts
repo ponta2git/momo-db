@@ -253,7 +253,10 @@ export const heldEvents = pgTable("held_events", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow()
-});
+}, (table) => [
+  // The history list and both adjacent-detail directions share bytewise ID ties.
+  index("held_events_navigation_idx").on(table.startAt, sql`${table.id} COLLATE "C"`)
+]);
 
 // source-of-truth: 開催ごとの参加メンバースナップショット (§8.3)。
 //   user config の members は「今の設定」であり「その開催の実参加」ではないため、
@@ -1034,7 +1037,14 @@ export const matches = pgTable(
     ),
     index("matches_held_event_id_idx").on(table.heldEventId),
     index("matches_created_by_account_id_idx").on(table.createdByAccountId),
-    index("matches_played_at_idx").on(table.playedAt)
+    index("matches_played_at_idx").on(table.playedAt),
+    // Bound global adjacent-match reads even when many matches share a timestamp.
+    index("matches_navigation_idx").on(
+      table.playedAt,
+      sql`${table.heldEventId} COLLATE "C"`,
+      table.matchNoInEvent,
+      sql`${table.id} COLLATE "C"`
+    )
   ]
 );
 
