@@ -1,0 +1,2 @@
+CREATE INDEX "held_events_navigation_idx" ON "held_events" USING btree ("start_at","id" COLLATE "C");--> statement-breakpoint
+CREATE INDEX "matches_navigation_idx" ON "matches" USING btree ("played_at","held_event_id" COLLATE "C","match_no_in_event","id" COLLATE "C");
