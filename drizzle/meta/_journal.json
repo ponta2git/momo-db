@@ -421,6 +421,20 @@
       "when": 1790683859083,
       "tag": "0059_radar-publication-guards",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791204838569,
+      "tag": "0060_series-rank-outlook",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1791204865390,
+      "tag": "0061_rank-outlook-publication-guards",
+      "breakpoints": true
     }
   ]
 }
