@@ -141,7 +141,7 @@ for (const [lastIndex, baseline] of [[45, oldTuple], [51, newTuple]]) {
         assert.deepEqual(await tuple(copy), baseline);
         const after = await stored(copy);
         assert.ok(after.headers.every(row => row.radar_basis_id === null && row.radar_generation === 0 && row.radar_applied_at === null && row.scope_keys.length === 0));
-        assert.deepEqual(after.headers.map(({ radar_basis_id, radar_generation, radar_applied_at, scope_keys, ...header }) => header), before.headers);
+        assert.deepEqual(after.headers.map(({ radar_basis_id, radar_generation, radar_applied_at, scope_keys, outlook_summary_chunk_count, outlook_reference_chunk_count, ...header }) => header), before.headers);
         assert.deepEqual(after.chunks, before.chunks);
         assert.deepEqual(after.states.map(({ notification_baseline_state, notification_baseline_artifact_id, ...state }) => state), before.states);
         assert.equal(after.states[0].notification_baseline_state, 'artifact');

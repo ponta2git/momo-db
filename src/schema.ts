@@ -1800,6 +1800,8 @@ export const seriesAnalysisArtifacts = pgTable(
     reviewChunkCount: integer("review_chunk_count").notNull(),
     drilldownChunkCount: integer("drilldown_chunk_count").notNull(),
     matchContextChunkCount: integer("match_context_chunk_count").notNull(),
+    outlookSummaryChunkCount: integer("outlook_summary_chunk_count").notNull().default(0),
+    outlookReferenceChunkCount: integer("outlook_reference_chunk_count").notNull().default(0),
     encodedBytes: bigint("encoded_bytes", { mode: "bigint" }).notNull(),
     decodedBytes: bigint("decoded_bytes", { mode: "bigint" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1839,7 +1841,7 @@ export const seriesAnalysisArtifacts = pgTable(
     ),
     check(
       "series_analysis_artifacts_chunk_counts_check",
-      sql`${table.aggregateChunkCount} >= 1 AND ${table.reviewChunkCount} >= 0 AND ${table.drilldownChunkCount} >= 0 AND ${table.matchContextChunkCount} >= 0`
+      sql`${table.aggregateChunkCount} >= 1 AND ${table.reviewChunkCount} >= 0 AND ${table.drilldownChunkCount} >= 0 AND ${table.matchContextChunkCount} >= 0 AND ${table.outlookSummaryChunkCount} >= 0 AND ${table.outlookReferenceChunkCount} >= 0`
     ),
     check(
       "series_analysis_artifacts_bytes_check",
@@ -1883,6 +1885,69 @@ export const seriesAnalysisScopeAggregateArtifacts = pgTable(
     ),
     checkSeriesAnalysisChunk(
       "series_analysis_scope_aggregate_artifacts_chunk_check",
+      table
+    )
+  ]
+);
+
+export const seriesAnalysisOutlookSummaryArtifacts = pgTable(
+  "series_analysis_outlook_summary_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.scopeKey] }),
+    check("series_analysis_outlook_summary_artifacts_domain_check", sql`${table.scopeKind} IN ('overall','season') AND ${table.itemCount} IN (0,4)`),
+    checkSeriesAnalysisScope(
+      "series_analysis_outlook_summary_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_outlook_summary_artifacts_chunk_check",
+      table
+    )
+  ]
+);
+
+export const seriesAnalysisOutlookReferenceArtifacts = pgTable(
+  "series_analysis_outlook_reference_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    memberId: text("member_id").notNull(),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.scopeKey, table.memberId] }),
+    check("series_analysis_outlook_reference_artifacts_domain_check", sql`${table.scopeKind} = 'overall' AND length(${table.memberId}) BETWEEN 1 AND 128 AND ${table.itemCount} BETWEEN 1 AND 2771`),
+    checkSeriesAnalysisScope(
+      "series_analysis_outlook_reference_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_outlook_reference_artifacts_chunk_check",
       table
     )
   ]
@@ -2044,7 +2109,8 @@ function checkSeriesAnalysisValidationSchema(
     sql`(${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v2-full-validation-v1' OR ${artifactSchemaVersion} = 2)
       AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v3-full-validation-v1' OR ${artifactSchemaVersion} = 3)
       AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v4-full-validation-v1' OR ${artifactSchemaVersion} = 4)
-      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v5-full-validation-v1' OR ${artifactSchemaVersion} = 5)`
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v5-full-validation-v1' OR ${artifactSchemaVersion} = 5)
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v6-full-validation-v1' OR ${artifactSchemaVersion} = 6)`
   );
 }
 
