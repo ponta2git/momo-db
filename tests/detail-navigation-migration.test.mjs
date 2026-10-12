@@ -59,7 +59,13 @@ test('0057 preserves the complete restored database and adds valid bytewise navi
     assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
     after.history = before.history;
-    assert.deepEqual(after, before, 'Index creation must preserve every existing value and reference');
+    const expected = {
+      ...before,
+      momo_login_accounts: before.momo_login_accounts.map(({ row: { is_admin, ...account } }) => ({
+        row: { ...account, role: is_admin ? 'admin' : 'user' }
+      }))
+    };
+    assert.deepEqual(after, expected, 'Existing rows must change only by the documented role mapping');
     const indexes = await copy`SELECT c.relname, i.indisvalid, i.indisunique, am.amname, pg_get_indexdef(i.indexrelid) AS definition
       FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
       WHERE c.relname IN ('held_events_navigation_idx','matches_navigation_idx') ORDER BY c.relname`;

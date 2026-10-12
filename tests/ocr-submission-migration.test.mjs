@@ -54,7 +54,13 @@ test('0056 preserves every existing row and migration hash after backup/restore,
     assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
     after.history = before.history;
-    assert.deepEqual(after, before);
+    const expected = {
+      ...before,
+      momo_login_accounts: before.momo_login_accounts.map(({ row: { is_admin, ...account } }) => ({
+        row: { ...account, role: is_admin ? 'admin' : 'user' }
+      }))
+    };
+    assert.deepEqual(after, expected, 'Existing rows must change only by the documented role mapping');
     assert.equal((await copy`SELECT count(*)::int AS n FROM ocr_submissions`)[0].n, 0);
     assert.equal((await copy`SELECT count(*)::int AS n FROM ocr_submission_members`)[0].n, 0);
   } finally {
