@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,12 +7,8 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient } from './notification-fixtures.mjs';
+import { docker, username } from './migration-fixtures.mjs';
 
-const container = process.env.MOMO_DB_TEST_CONTAINER;
-const username = process.env.MOMO_DB_TEST_USER ?? 'postgres';
-if (!container || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(container)) {
-  throw new Error('Set MOMO_DB_TEST_CONTAINER to the disposable local PostgreSQL test container.');
-}
 const oldContract = 'series-analysis-artifact-v2-full-validation-v1';
 const newContract = 'series-analysis-artifact-v3-full-validation-v1';
 const oldTuple = { algorithm_version: 'series-analysis-v4', artifact_schema_version: 2, validation_contract_id: oldContract };
@@ -22,14 +17,6 @@ const presentationContract = 'series-analysis-artifact-v4-full-validation-v1';
 const presentationTuple = { ...newTuple, artifact_schema_version: 4, validation_contract_id: presentationContract };
 const payload = Buffer.from('{}');
 const checksum = 'sha256:' + createHash('sha256').update(payload).digest('hex');
-
-function docker(args, input) {
-  const result = spawnSync('docker', ['exec', ...(input ? ['-i'] : []), container, ...args], {
-    input, maxBuffer: 32 * 1024 * 1024
-  });
-  if (result.status !== 0) throw new Error(`Disposable database command failed: ${args[0]} (${result.status})`, { cause: result.error });
-  return result.stdout;
-}
 
 async function withDatabase(run) {
   const name = 'momo_db_test_analysis_' + randomUUID().replaceAll('-', '').slice(0, 12);

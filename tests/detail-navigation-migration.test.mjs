@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,17 +7,8 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
+import { docker, username } from './migration-fixtures.mjs';
 
-const container = process.env.MOMO_DB_TEST_CONTAINER;
-const username = process.env.MOMO_DB_TEST_USER ?? 'postgres';
-if (!container || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(container)) {
-  throw new Error('Set MOMO_DB_TEST_CONTAINER to the disposable local PostgreSQL test container.');
-}
-function docker(args, input) {
-  const result = spawnSync('docker', ['exec', ...(input ? ['-i'] : []), container, ...args], { input, maxBuffer: 32 * 1024 * 1024 });
-  if (result.status !== 0) throw new Error(`Disposable database command failed: ${args[0]} (${result.status})`);
-  return result.stdout;
-}
 async function snapshot(db, tables) {
   const result = {};
   for (const table of tables) {

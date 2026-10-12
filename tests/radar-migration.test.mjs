@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient } from './notification-fixtures.mjs';
+import { docker, username } from './migration-fixtures.mjs';
 
-const container = process.env.MOMO_DB_TEST_CONTAINER;
-if (!container || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(container)) throw new Error('A disposable MOMO_DB_TEST_CONTAINER is required.');
-const username = process.env.MOMO_DB_TEST_USER ?? 'postgres';
 const checksum = 'sha256:' + 'a'.repeat(64);
 const contract = 'series-analysis-artifact-v5-full-validation-v1';
-function docker(args) {
-  const run = spawnSync('docker', ['exec', container, ...args], { maxBuffer: 1024 * 1024 });
-  if (run.status !== 0) throw new Error('Disposable database operation failed.');
-}
 async function isolated(run) {
   const name = 'momo_db_test_radar_' + randomUUID().replaceAll('-', '').slice(0, 12);
   docker(['createdb', '-U', username, name]);
