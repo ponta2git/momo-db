@@ -3,7 +3,7 @@ import { check } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 // Shared CHECK expressions for analysis headers and artifact resources.
-// Table definitions and constraint names remain in schema.ts.
+// Table definitions and constraint names remain in the domain modules.
 type SeriesAnalysisScopeColumns = {
   scopeKey: AnyPgColumn;
   scopeKind: AnyPgColumn;

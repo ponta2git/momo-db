@@ -82,6 +82,8 @@ summit の `pnpm setup` が momo-db の全 DB セットアップを自動的に�
 
 通常の schema migration と custom SQL migration の作り分け、履歴の不変性、検証、rollback は [`docs/development.md`](./docs/development.md) に従う。
 
+`src/schema.ts` は `@momo/db` と Drizzle Kit の共通入口で、table・関連する型・制約を `src/schema/` の domain ごとにまとめる。通知 payload と ID の契約は `src/notifications.ts` が所有する。分割によって変更箇所を絞れる一方、参照先を追う必要が増えるため、同じ責務の宣言はまとめ、内部の依存は各 module へ直接 import する。
+
 変更後は `pnpm build` で `dist/` を再生成し、消費プロジェクトで `pnpm install` を再実行して `@momo/db` の成果物を更新する。
 
 ## 環境変数

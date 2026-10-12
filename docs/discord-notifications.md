@@ -1,6 +1,6 @@
 # Discord 通知の共有 DB 契約
 
-物理 schema は [src/schema.ts](../src/schema.ts)、A/B の型と ID は [src/notifications.ts](../src/notifications.ts) が正本。TypeScript は `@momo/db` と `@momo/db/notifications` を使う。他言語も本書と JSON 例に従う。migration の作成・適用・復旧は [development.md](development.md) に従う。
+物理 schema は [src/schema/](../src/schema/)、公開入口は [src/schema.ts](../src/schema.ts)、A/B の型と ID は [src/notifications.ts](../src/notifications.ts) が正本。TypeScript は `@momo/db` と `@momo/db/notifications` を使う。他言語も本書と JSON 例に従う。migration の作成・適用・復旧は [development.md](development.md) に従う。
 
 通知可否、設定世代、取消、受付検証、配送・再試行・保持の判断と集約の更新境界はアプリケーションが所有する。DB に通知用の業務関数・trigger は置かない。一意制約・外部キー・形状制約と transaction / row lock / advisory lock はアプリの決定を永続化する機構として使う。
 

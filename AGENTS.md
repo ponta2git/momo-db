@@ -6,7 +6,7 @@ momo-db は summit / momo-result が共有する PostgreSQL schema と migration
 
 | 作業 | 読む文書 |
 | --- | --- |
-| `src/schema.ts`、`drizzle/`、Drizzle の設定・script、DB の schema / migration state の変更 | 変更前に [`docs/development.md`](./docs/development.md) を最初から最後まで読む |
+| `src/schema.ts`、`src/schema/`、`drizzle/`、Drizzle の設定・script、DB の schema / migration state の変更 | 変更前に [`docs/development.md`](./docs/development.md) を最初から最後まで読む |
 | 通知の型・ID・payload、保存契約、consumer との更新境界の変更 | [`docs/discord-notifications.md`](./docs/discord-notifications.md) |
 | セットアップ、コマンド、CI の確認 | [`README.md`](./README.md) の該当節 |
 | 本番接続先・credential の更新 | [`docs/ops/neon-production-connection-rotation.md`](./docs/ops/neon-production-connection-rotation.md) |
@@ -15,6 +15,8 @@ momo-db は summit / momo-result が共有する PostgreSQL schema と migration
 複数に該当する変更は、それぞれの文書を参照する。ADR と `docs/plans/` は判断の背景や当時の計画を調べるときに読む。
 
 DB 変更の規範は `docs/development.md` に集約する。README・ADR・実装との矛盾を見つけたら、矛盾に依存する変更・生成・適用を止め、該当箇所と後続の決定を照合する。どちらが正しいか確定できなければ、根拠と必要な判断をユーザーに示す。独立した調査や修正は進めてよい。
+
+`src/schema.ts` は `@momo/db` と Drizzle Kit の公開入口とし、宣言は `src/schema/` の担当 domain に置く。内部 module は依存先 module を直接 import し、公開入口を経由しない。
 
 ## 実行範囲と完了
 

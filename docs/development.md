@@ -2,11 +2,11 @@
 
 この文書は、momo-db の schema と migration を変更する際の単一の規範文書である。momo-result、summit を含む共有 DB の利用側から momo-db を変更する場合も、実装前にこの文書を読む。
 
-`src/schema.ts`、`drizzle/`、Drizzle の設定・script、DB の schema / migration state の変更に適用する。通知の業務契約と consumer の責務は [共有通知契約](discord-notifications.md)、セットアップとコマンド一覧は [README](../README.md) を参照する。ADR と実施計画は当時の判断を記録するものであり、本書の手順を上書きしない。
+`src/schema.ts`、`src/schema/`、`drizzle/`、Drizzle の設定・script、DB の schema / migration state の変更に適用する。通知の業務契約と consumer の責務は [共有通知契約](discord-notifications.md)、セットアップとコマンド一覧は [README](../README.md) を参照する。ADR と実施計画は当時の判断を記録するものであり、本書の手順を上書きしない。
 
 ## 1. 所有境界
 
-- Drizzle が表現できる table、column、constraint、index などの宣言元は `src/schema.ts` とする。
+- Drizzle が表現できる table、column、constraint、index などの宣言元は `src/schema/` の domain module とする。`src/schema.ts` は既存の公開名を再 export する `@momo/db` と Drizzle Kit 共通の入口であり、内部 module は依存先を直接 import する。
 - `drizzle/` の SQL、`drizzle/meta/_journal.json`、snapshot は、順序を持つ一つの migration 履歴である。
 - schema 変更は `drizzle-kit generate`、Drizzle が表現できない DDL や data transition は `drizzle-kit generate --custom` から作る。schema を `psql` 等で直接変更しない。
 - SQL migration は Drizzle 管理の正規成果物である。function、trigger、data transition などの独立した手書き SQL も custom migration として履歴・順序・検証の対象にする。
@@ -25,7 +25,7 @@
 
 ### 3.1 Drizzle schema で表現できる変更
 
-1. `src/schema.ts` を変更する。
+1. `src/schema/` の該当 domain の宣言を変更する。公開名を追加するときは `src/schema.ts` の export も更新する。
 2. 意味の分かる名前で schema migration を生成する。
 
    ```bash
@@ -46,7 +46,7 @@ pnpm db:generate --custom --name=<purpose>
 
 function、trigger、procedural precondition / backfill、seed などの独立した手書き SQL は、このコマンドが新規作成した SQL ファイルだけに記述する。migration file の採番、journal、snapshot を手で作成・更新しない。
 
-schema DDL と custom SQL の両方が必要なら、一つの migration に混ぜず、依存順が明確な別 migration にする。例えば、column を追加する schema migration の次に、その column を参照する function / trigger の custom migration を置く。既存値の整形後に `NOT NULL` 化する場合は、expand schema を生成 → その shape のまま custom precondition / backfill を生成 → `src/schema.ts` を contract shape に変えて contract migration を生成、の順に進める。custom migration も生成時点の snapshot を作るため、後段の schema shape へ先に進めない。
+schema DDL と custom SQL の両方が必要なら、一つの migration に混ぜず、依存順が明確な別 migration にする。例えば、column を追加する schema migration の次に、その column を参照する function / trigger の custom migration を置く。既存値の整形後に `NOT NULL` 化する場合は、expand schema を生成 → その shape のまま custom precondition / backfill を生成 → `src/schema/` の宣言を contract shape に変えて contract migration を生成、の順に進める。custom migration も生成時点の snapshot を作るため、後段の schema shape へ先に進めない。
 
 公式仕様は [Drizzle Kit `generate`](https://orm.drizzle.team/docs/drizzle-kit-generate) と [custom migrations](https://orm.drizzle.team/docs/kit-custom-migrations) を参照する。この repository では固定済み `drizzle-kit` の `pnpm db:generate --help` も実際の option の根拠とする。
 
