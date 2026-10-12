@@ -53,6 +53,12 @@ export const seriesRadarCandidates = pgTable(
       .notNull()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
     basisId: text("basis_id"),
+    originKind: text("origin_kind").notNull().default("generated"),
+    manualInput: jsonb("manual_input"),
+    sourceBasisId: text("source_basis_id"),
+    sourceCandidateId: text("source_candidate_id"),
+    savedBy: text("saved_by"),
+    savedByDisplayName: text("saved_by_display_name"),
     status: text("status").notNull().default("pending"),
     result: jsonb("result"),
     sourceInputRevision: bigint("source_input_revision", { mode: "bigint" }),
@@ -77,6 +83,19 @@ export const seriesRadarCandidates = pgTable(
       columns: [table.basisId, table.gameTitleId],
       foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
     }),
+    foreignKey({
+      name: "series_radar_candidate_source_basis_fk",
+      columns: [table.sourceBasisId, table.gameTitleId],
+      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+    }),
+    check(
+      "series_radar_candidate_origin_check",
+      sql`${table.originKind} IN ('generated','manual','restore')`
+    ),
+    check(
+      "series_radar_candidate_manual_check",
+      sql`(${table.originKind} = 'manual') = (${table.manualInput} IS NOT NULL) AND (${table.originKind} <> 'manual' OR (${table.sourceBasisId} IS NOT NULL AND ${table.savedBy} IS NOT NULL))`
+    ),
     check(
       "series_radar_candidates_status_check",
       sql`${table.status} IN ('pending','ready','unavailable','invalid','withdrawn','applied','failed')`
@@ -167,6 +186,7 @@ export const seriesRadarOperations = pgTable(
     basisId: text("basis_id"),
     originOperationId: text("origin_operation_id"),
     requestedBy: text("requested_by").notNull(),
+    requestedByDisplayName: text("requested_by_display_name"),
     idempotencyKeyHash: text("idempotency_key_hash").notNull(),
     requestFingerprint: text("request_fingerprint").notNull(),
     jobId: text("job_id"),
@@ -206,7 +226,7 @@ export const seriesRadarOperations = pgTable(
     }),
     check(
       "series_radar_operations_kind_check",
-      sql`${table.kind} IN ('candidate','preview','apply','withdraw','restore','acknowledge','retry')`
+      sql`${table.kind} IN ('candidate','manual','preview','apply','withdraw','restore','acknowledge','retry')`
     ),
     check(
       "series_radar_operations_status_check",
@@ -298,5 +318,57 @@ export const seriesRadarAcknowledgements = pgTable(
     primaryKey({
       columns: [table.gameTitleId, table.evidenceKey]
     })
+  ]
+);
+
+// Publication-sized history survives private comparison/source snapshot cleanup.
+export const seriesRadarRevisions = pgTable(
+  "series_radar_revisions",
+  {
+    operationId: text("operation_id").primaryKey(),
+    gameTitleId: text("game_title_id")
+      .notNull()
+      .references(() => gameTitles.id, { onDelete: "cascade" }),
+    candidateId: text("candidate_id").notNull(),
+    beforeBasisId: text("before_basis_id"),
+    afterBasisId: text("after_basis_id").notNull(),
+    changeKind: text("change_kind").notNull(),
+    requestedBy: text("requested_by").notNull(),
+    requestedByDisplayName: text("requested_by_display_name"),
+    savedBy: text("saved_by"),
+    savedByDisplayName: text("saved_by_display_name"),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull()
+  },
+  (table) => [
+    foreignKey({
+      name: "series_radar_revision_operation_fk",
+      columns: [table.operationId, table.gameTitleId],
+      foreignColumns: [seriesRadarOperations.id, seriesRadarOperations.gameTitleId]
+    }),
+    foreignKey({
+      name: "series_radar_revision_candidate_fk",
+      columns: [table.candidateId, table.gameTitleId],
+      foreignColumns: [seriesRadarCandidates.id, seriesRadarCandidates.gameTitleId]
+    }),
+    foreignKey({
+      name: "series_radar_revision_before_fk",
+      columns: [table.beforeBasisId, table.gameTitleId],
+      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+    }),
+    foreignKey({
+      name: "series_radar_revision_after_fk",
+      columns: [table.afterBasisId, table.gameTitleId],
+      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+    }),
+    check(
+      "series_radar_revision_kind_check",
+      sql`${table.changeKind} IN ('generated','manual','restore')`
+    ),
+    index("series_radar_revisions_created_idx").on(table.publishedAt, table.operationId),
+    index("series_radar_revisions_title_created_idx").on(
+      table.gameTitleId,
+      table.publishedAt,
+      table.operationId
+    )
   ]
 );

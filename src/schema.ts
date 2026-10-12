@@ -80,6 +80,7 @@ export {
   seriesRadarPreviews,
   seriesRadarPreviewScopes,
   seriesRadarOperations,
+  seriesRadarRevisions,
   seriesRadarTitleStates,
   seriesRadarAcknowledgements
 } from "./schema/radar.js";
