@@ -91,6 +91,7 @@ test('role migration preserves restored accounts, sessions, references and histo
       const after = await snapshotDatabase(copy);
       assert.deepEqual(after.rows, {
         ...before.rows,
+        series_radar_revisions: [],
         momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
       }, 'Only is_admin to role may change; account values and every session/reference must survive');
       assert.equal(after.history.length, journal().entries.length);

@@ -36,8 +36,8 @@ async function references(db, id) {
     payload,encoded_bytes,decoded_bytes,item_count,nesting_depth,checksum)
     VALUES (${id},'overall','overall',${'member-' + i},${payload},2,2,1,1,${checksum})`;
 }
-async function publish(db, id) {
-  await db`UPDATE series_analysis_artifacts SET validation_contract_id=${contract} WHERE id=${id}`;
+async function publish(db, id, validationContract = contract) {
+  await db`UPDATE series_analysis_artifacts SET validation_contract_id=${validationContract} WHERE id=${id}`;
   await db`UPDATE series_analysis_artifacts SET status='published',published_at=clock_timestamp() WHERE id=${id}`;
 }
 
@@ -116,4 +116,22 @@ test('restored v5 publications and migration hashes survive the new tables and g
     await assert.rejects(copy`UPDATE series_analysis_title_states SET previous_artifact_id='legacy'`, /attested publication/);
     assert.equal((await copy`SELECT notification_baseline_artifact_id FROM series_analysis_title_states`)[0].notification_baseline_artifact_id,'legacy');
   });
+}));
+
+
+test('expanded radar contract admits both seals but keeps pointers on the exact requested contract', async () => isolated(async db => {
+  await migrate(drizzle(db),{migrationsFolder:'./drizzle'});
+  await db`INSERT INTO game_titles(id,name,layout_family) VALUES ('outlook-title','Outlook','momotetsu_2')`;
+  await stage(db,'old-v1'); await summary(db,'old-v1'); await publish(db,'old-v1');
+  const before=await db`SELECT to_jsonb(a) AS value FROM series_analysis_artifacts a WHERE id='old-v1'`;
+  const nextContract='series-analysis-artifact-v6-full-validation-v2';
+  await db`UPDATE series_analysis_title_states SET algorithm_version='series-analysis-v7',artifact_schema_version=6,validation_contract_id=${nextContract}`;
+  await assert.rejects(db`UPDATE series_analysis_title_states SET current_artifact_id='old-v1'`,/desired-version/);
+  await assert.rejects(db`UPDATE series_analysis_title_states SET previous_artifact_id='old-v1'`,/attested publication/);
+  await stage(db,'new-v2'); await summary(db,'new-v2'); await publish(db,'new-v2',nextContract);
+  await db`UPDATE series_analysis_title_states SET current_artifact_id='new-v2'`;
+  await assert.rejects(db`UPDATE series_analysis_artifacts SET validation_contract_id=${nextContract} WHERE id='old-v1'`,/immutable/);
+  await stage(db,'unknown'); await summary(db,'unknown');
+  await assert.rejects(publish(db,'unknown','series-analysis-artifact-v6-full-validation-v3'),/seal-only/);
+  assert.deepEqual(await db`SELECT to_jsonb(a) AS value FROM series_analysis_artifacts a WHERE id='old-v1'`,before);
 }));
