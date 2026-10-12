@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
-import { docker, username } from './migration-fixtures.mjs';
+import { docker, expectedLoginAccountRoles, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 const previousIndex = 61;
 const finalIndex = 64;
@@ -16,9 +16,14 @@ const journal = () => JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'u
 async function withDatabase(run) {
   const name = 'momo_db_test_roles_' + randomUUID().replaceAll('-', '').slice(0, 12);
   docker(['createdb', '-U', username, name]);
-  const db = createTestClient(name);
-  try { return await run(db, name); }
-  finally { await db.end(); docker(['dropdb', '-U', username, name]); }
+  let db;
+  try {
+    db = createTestClient(name);
+    return await run(db, name);
+  } finally {
+    try { await db?.end(); }
+    finally { docker(['dropdb', '-U', username, name]); }
+  }
 }
 
 async function migratePrevious(db) {
@@ -67,25 +72,6 @@ async function seedAccounts(db) {
   }
 }
 
-async function snapshot(db) {
-  const rows = {};
-  const tables = await db`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`;
-  for (const { tablename } of tables) {
-    const values = tablename === 'momo_login_accounts'
-      ? await db`SELECT to_jsonb(record) AS value FROM ${db(tablename)} record ORDER BY id`
-      : await db`SELECT to_jsonb(record) AS value FROM ${db(tablename)} record ORDER BY to_jsonb(record)::text`;
-    rows[tablename] = values.map(row => row.value);
-  }
-  return {
-    rows,
-    history: [...await db`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`]
-  };
-}
-
-function mappedAccounts(accounts) {
-  return accounts.map(({ is_admin, ...account }) => ({ ...account, role: is_admin ? 'admin' : 'user' }));
-}
-
 async function accountColumns(db) {
   return [...await db`SELECT column_name, data_type, is_nullable, column_default
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'momo_login_accounts'
@@ -96,16 +82,16 @@ test('role migration preserves restored accounts, sessions, references and histo
   await withDatabase(async (source, name) => {
     await migratePrevious(source);
     await seedAccounts(source);
-    const before = await snapshot(source);
+    const before = await snapshotDatabase(source);
     const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', name]);
     await withDatabase(async (copy, restored) => {
       docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
-      assert.deepEqual(await snapshot(copy), before, 'The restored fixture must match the entire original database');
+      assert.deepEqual(await snapshotDatabase(copy), before, 'The restored fixture must match the entire original database');
       await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-      const after = await snapshot(copy);
+      const after = await snapshotDatabase(copy);
       assert.deepEqual(after.rows, {
         ...before.rows,
-        momo_login_accounts: mappedAccounts(before.rows.momo_login_accounts)
+        momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
       }, 'Only is_admin to role may change; account values and every session/reference must survive');
       assert.equal(after.history.length, journal().entries.length);
       assert.deepEqual(after.history.slice(0, before.history.length), before.history);
@@ -114,9 +100,9 @@ test('role migration preserves restored accounts, sessions, references and histo
       const [assigned] = await copy`UPDATE momo_login_accounts SET role = 'operator'
         WHERE id = 'role-user-enabled-unlinked' RETURNING role`;
       assert.equal(assigned.role, 'operator');
-      const beforeRerun = await snapshot(copy);
+      const beforeRerun = await snapshotDatabase(copy);
       await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-      assert.deepEqual(await snapshot(copy), beforeRerun,
+      assert.deepEqual(await snapshotDatabase(copy), beforeRerun,
         'A second migrate call must preserve a subsequent operator assignment without backfilling or appending history');
       await assert.rejects(copy`SELECT is_admin FROM momo_login_accounts`, { code: '42703' });
       await assert.rejects(copy.begin(async tx => {
@@ -125,7 +111,7 @@ test('role migration preserves restored accounts, sessions, references and histo
           WHERE id = 'role-admin-enabled-linked'`;
         await tx`UPDATE momo_login_accounts SET is_admin = false WHERE id = 'role-admin-enabled-linked'`;
       }), { code: '42703' });
-      assert.deepEqual(await snapshot(copy), beforeRerun, 'A rejected legacy transaction must not delete sessions or alter accounts');
+      assert.deepEqual(await snapshotDatabase(copy), beforeRerun, 'A rejected legacy transaction must not delete sessions or alter accounts');
     });
   });
 });
@@ -221,7 +207,7 @@ test('failure after backfill, two history rows and final DDL rolls back the comp
   await withDatabase(async db => {
     await migratePrevious(db);
     await seedAccounts(db);
-    const before = await snapshot(db);
+    const before = await snapshotDatabase(db);
     const columnsBefore = await accountColumns(db);
     const folder = mkdtempSync(join(tmpdir(), 'momo-db-role-failure-'));
     try {
@@ -249,7 +235,7 @@ test('failure after backfill, two history rows and final DDL rolls back the comp
         `\n--> statement-breakpoint\nDO $$ BEGIN RAISE EXCEPTION '${failure}'; END $$;\n`);
       await assert.rejects(migrate(drizzle(db), { migrationsFolder: folder }), error =>
         error.cause?.code === 'P0001' && error.cause?.message === failure);
-      assert.deepEqual(await snapshot(db), before, 'Rows and all new migration history entries must roll back together');
+      assert.deepEqual(await snapshotDatabase(db), before, 'Rows and all new migration history entries must roll back together');
       assert.deepEqual(await accountColumns(db), columnsBefore, 'Only the original is_admin schema must remain');
       assert.equal((await db`SELECT to_regclass('public.momo_login_accounts_is_admin_idx') AS legacy`)[0].legacy,
         'momo_login_accounts_is_admin_idx');

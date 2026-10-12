@@ -7,16 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
-import { docker, username } from './migration-fixtures.mjs';
-
-async function snapshot(db, tables) {
-  const result = {};
-  for (const table of tables) {
-    result[table] = [...await db`SELECT to_jsonb(row) AS row FROM ${db(table)} row ORDER BY to_jsonb(row)::text`];
-  }
-  result.history = [...await db`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`];
-  return result;
-}
+import { docker, expectedLoginAccountRoles, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 test('0057 preserves the complete restored database and adds valid bytewise navigation indexes', async () => {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -48,24 +39,20 @@ test('0057 preserves the complete restored database and adds valid bytewise navi
     await db`INSERT INTO match_incidents(match_id,member_id,incident_master_id,count)
       SELECT p.match_id,p.member_id,i.id,1 FROM match_players p CROSS JOIN incident_masters i`;
     const tables = (await db`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`).map(row => row.tablename);
-    const before = await snapshot(db, tables);
+    const before = await snapshotDatabase(db, tables);
     const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', source]);
     docker(['createdb', '-U', username, restored]); created.push(restored);
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
     copy = createTestClient(restored);
-    assert.deepEqual(await snapshot(copy, tables), before);
+    assert.deepEqual(await snapshotDatabase(copy, tables), before);
     await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-    const after = await snapshot(copy, tables);
+    const after = await snapshotDatabase(copy, tables);
     assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-    after.history = before.history;
-    const expected = {
-      ...before,
-      momo_login_accounts: before.momo_login_accounts.map(({ row: { is_admin, ...account } }) => ({
-        row: { ...account, role: is_admin ? 'admin' : 'user' }
-      }))
-    };
-    assert.deepEqual(after, expected, 'Existing rows must change only by the documented role mapping');
+    assert.deepEqual(after.rows, {
+      ...before.rows,
+      momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
+    }, 'Existing rows must change only by the documented role mapping');
     const indexes = await copy`SELECT c.relname, i.indisvalid, i.indisunique, am.amname, pg_get_indexdef(i.indexrelid) AS definition
       FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
       WHERE c.relname IN ('held_events_navigation_idx','matches_navigation_idx') ORDER BY c.relname`;
