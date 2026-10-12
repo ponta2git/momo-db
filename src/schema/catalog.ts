@@ -1,4 +1,11 @@
-import { index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex
+} from "drizzle-orm/pg-core";
 import { members } from "./identity.js";
 
 // momo-result の作品・マップ・シーズン・事件とメンバー別名のマスター。

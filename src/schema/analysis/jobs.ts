@@ -14,7 +14,10 @@ import { sql } from "drizzle-orm";
 import { gameTitles } from "../catalog.js";
 import { seriesRadarBases } from "../radar.js";
 import { seriesAnalysisOperationRequests, seriesAnalysisCampaigns } from "./operations.js";
-import { checkSeriesAnalysisValidationContract, checkSeriesAnalysisValidationSchema } from "./checks.js";
+import {
+  checkSeriesAnalysisValidationContract,
+  checkSeriesAnalysisValidationSchema
+} from "./checks.js";
 
 export const seriesAnalysisJobs = pgTable(
   "series_analysis_jobs",

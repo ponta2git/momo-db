@@ -14,7 +14,12 @@ import { gameTitles } from "../catalog.js";
 import { seriesRadarBases } from "../radar.js";
 import { bytea } from "../types.js";
 import { seriesAnalysisJobAttempts } from "./jobs.js";
-import { checkSeriesAnalysisScope, checkSeriesAnalysisChunk, checkSeriesAnalysisValidationContract, checkSeriesAnalysisValidationSchema } from "./checks.js";
+import {
+  checkSeriesAnalysisScope,
+  checkSeriesAnalysisChunk,
+  checkSeriesAnalysisValidationContract,
+  checkSeriesAnalysisValidationSchema
+} from "./checks.js";
 
 export const seriesAnalysisArtifacts = pgTable(
   "series_analysis_artifacts",

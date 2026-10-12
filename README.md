@@ -82,7 +82,26 @@ summit の `pnpm setup` が momo-db の全 DB セットアップを自動的に�
 
 通常の schema migration と custom SQL migration の作り分け、履歴の不変性、検証、rollback は [`docs/development.md`](./docs/development.md) に従う。
 
-`src/schema.ts` は `@momo/db` と Drizzle Kit の共通入口で、table・関連する型・制約を `src/schema/` の domain ごとにまとめる。通知 payload と ID の契約は `src/notifications.ts` が所有する。分割によって変更箇所を絞れる一方、参照先を追う必要が増えるため、同じ責務の宣言はまとめ、内部の依存は各 module へ直接 import する。
+`src/schema.ts` は `@momo/db` と Drizzle Kit の共通入口で、既存の公開名を再 export する。宣言は次の責務ごとに配置する。
+
+| ファイル | 責務 |
+| --- | --- |
+| [schema/identity.ts](./src/schema/identity.ts) | メンバー、ログインアカウント、ログインセッション、HTTP 再送の処理結果 |
+| [schema/catalog.ts](./src/schema/catalog.ts) | 作品・マップ・シーズン・事件のマスター、メンバー別名 |
+| [schema/attendance.ts](./src/schema/attendance.ts) | 出欠アンケート・回答、開催・参加者の履歴 |
+| [schema/matches.ts](./src/schema/matches.ts) | 試合下書き、確定試合、プレイヤー別結果・事件回数 |
+| [schema/ocr.ts](./src/schema/ocr.ts) | 入力画像、OCR ジョブ・下書き、読み取り操作、キュー送出意図 |
+| [schema/discord-notifications.ts](./src/schema/discord-notifications.ts) | 通知・設定・対象・配送部分の保存形、状態定数・型 |
+| [notifications.ts](./src/notifications.ts) | アプリ間で送受信する通知 payload と ID の契約 |
+| [schema/analysis/operations.ts](./src/schema/analysis/operations.ts) | 分析操作の受付、キャンペーンと対象 |
+| [schema/analysis/jobs.ts](./src/schema/analysis/jobs.ts) | 分析ジョブ・要求・試行、実行枠、対応能力、キュー送出意図 |
+| [schema/analysis/artifacts.ts](./src/schema/analysis/artifacts.ts) | 分析成果物のヘッダーと集計・詳細データ |
+| [schema/analysis/publication.ts](./src/schema/analysis/publication.ts) | 分析の公開状態、作品ごとの入力・通知基準 |
+| [schema/analysis/checks.ts](./src/schema/analysis/checks.ts) | 分析テーブル間で共通の CHECK 制約式 |
+| [schema/radar.ts](./src/schema/radar.ts) | レーダー基準、候補・プレビュー・適用操作と状態 |
+| [schema/types.ts](./src/schema/types.ts) | 内部で共用する PostgreSQL の列型 |
+
+分割によって変更箇所を絞れる一方、ファイル間の参照を追う必要が増える。同じ責務のテーブルと定数・型は一緒に読み、変更できる単位にまとめる。内部では依存先ファイルを直接 import し、公開入口を経由せず循環のない依存関係を保つ。通知の通信契約と保存形も、この境界に沿ってそれぞれのファイルで扱う。
 
 変更後は `pnpm build` で `dist/` を再生成し、消費プロジェクトで `pnpm install` を再実行して `@momo/db` の成果物を更新する。
 

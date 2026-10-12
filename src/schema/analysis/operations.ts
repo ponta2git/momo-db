@@ -11,7 +11,10 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { momoLoginAccounts } from "../identity.js";
-import { checkSeriesAnalysisValidationContract, checkSeriesAnalysisValidationSchema } from "./checks.js";
+import {
+  checkSeriesAnalysisValidationContract,
+  checkSeriesAnalysisValidationSchema
+} from "./checks.js";
 
 export const seriesAnalysisOperationRequests = pgTable(
   "series_analysis_operation_requests",

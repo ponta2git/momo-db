@@ -12,7 +12,10 @@ import {
 import { sql } from "drizzle-orm";
 import { gameTitles } from "../catalog.js";
 import { seriesAnalysisArtifacts } from "./artifacts.js";
-import { checkSeriesAnalysisValidationContract, checkSeriesAnalysisValidationSchema } from "./checks.js";
+import {
+  checkSeriesAnalysisValidationContract,
+  checkSeriesAnalysisValidationSchema
+} from "./checks.js";
 
 // source-of-truth: active analysis tuple inherited by titles registered after a promotion.
 export const seriesAnalysisReleaseState = pgTable(
