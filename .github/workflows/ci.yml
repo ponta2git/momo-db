@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [master]
+
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -10,9 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       drizzle_changed: ${{ steps.changes.outputs.changed }}
-    environment: CI Actions
     env:
-      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      DIRECT_URL: postgresql://postgres@127.0.0.1:5432/momo_db_test_notifications
       MOMO_DB_TEST_DATABASE: momo_db_test_notifications
       MOMO_DB_TEST_USER: postgres
       MOMO_DB_TEST_PORT: 5432
@@ -38,6 +41,7 @@ jobs:
 
       - name: Detect drizzle/ changes
         id: changes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           BEFORE="${{ github.event.before }}"
           AFTER="${{ github.sha }}"
@@ -79,7 +83,7 @@ jobs:
   approve-migration:
     name: Approve production migration
     needs: ci
-    if: needs.ci.outputs.drizzle_changed == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
     runs-on: ubuntu-latest
     environment: production-db
     steps:
@@ -91,7 +95,7 @@ jobs:
     needs:
       - ci
       - approve-migration
-    if: needs.ci.outputs.drizzle_changed == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
     runs-on: ubuntu-latest
     # Serialize migrations: never cancel in-progress to avoid partial schema state
     concurrency:

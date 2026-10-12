@@ -7,16 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, envelope, resetFixtures } from './notification-fixtures.mjs';
-import { docker, username } from './migration-fixtures.mjs';
-
-async function snapshot(db, tables) {
-  const result = {};
-  for (const table of tables) {
-    result[table] = [...await db`SELECT to_jsonb(row) AS row FROM ${db(table)} row ORDER BY to_jsonb(row)::text`];
-  }
-  result.history = [...await db`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`];
-  return result;
-}
+import { docker, expectedLoginAccountRoles, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 test('0056 preserves every existing row and migration hash after backup/restore, including OCR v1 history', async () => {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -43,18 +34,20 @@ test('0056 preserves every existing row and migration hash after backup/restore,
     await db`INSERT INTO discord_notification_results(notification_id, kind, source_job_id, occurred_at, settings_generation)
       VALUES (${payload.notificationId}, 'ocr_completed', 'historical-job', now(), 0)`;
     const tables = (await db`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`).map(row => row.tablename);
-    const before = await snapshot(db, tables);
+    const before = await snapshotDatabase(db, tables);
     const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', source]);
     docker(['createdb', '-U', username, restored]); created.push(restored);
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
     copy = createTestClient(restored);
-    assert.deepEqual(await snapshot(copy, tables), before);
+    assert.deepEqual(await snapshotDatabase(copy, tables), before);
     await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-    const after = await snapshot(copy, tables);
+    const after = await snapshotDatabase(copy, tables);
     assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-    after.history = before.history;
-    assert.deepEqual(after, before);
+    assert.deepEqual(after.rows, {
+      ...before.rows,
+      momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
+    }, 'Existing rows must change only by the documented role mapping');
     assert.equal((await copy`SELECT count(*)::int AS n FROM ocr_submissions`)[0].n, 0);
     assert.equal((await copy`SELECT count(*)::int AS n FROM ocr_submission_members`)[0].n, 0);
   } finally {

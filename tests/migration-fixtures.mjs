@@ -18,3 +18,27 @@ export function docker(args, input) {
   }
   return result.stdout;
 }
+
+export async function snapshotDatabase(db, tables) {
+  tables ??= (await db`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`)
+    .map(row => row.tablename);
+  const rows = {};
+  for (const table of tables) {
+    // Account ordering must stay stable when is_admin is replaced by role.
+    const values = table === 'momo_login_accounts'
+      ? await db`SELECT to_jsonb(record) AS value FROM ${db(table)} record ORDER BY id`
+      : await db`SELECT to_jsonb(record) AS value FROM ${db(table)} record ORDER BY to_jsonb(record)::text`;
+    rows[table] = values.map(row => row.value);
+  }
+  return {
+    rows,
+    history: [...await db`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`]
+  };
+}
+
+export function expectedLoginAccountRoles(accounts) {
+  return accounts.map(({ is_admin, ...account }) => {
+    if (typeof is_admin !== 'boolean') throw new Error('Expected a legacy account with a boolean is_admin');
+    return { ...account, role: is_admin ? 'admin' : 'user' };
+  });
+}

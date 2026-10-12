@@ -2,11 +2,13 @@
 // the defining module so domain dependencies do not cycle through this facade.
 
 export {
+  LOGIN_ACCOUNT_ROLES,
   members,
   momoLoginAccounts,
   appSessions,
   idempotencyKeys
 } from "./schema/identity.js";
+export type { LoginAccountRole } from "./schema/identity.js";
 
 export {
   SESSION_STATUSES,
