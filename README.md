@@ -6,13 +6,15 @@ Discord Bot プロジェクト群（summit / momo-result）が共有する Postg
 
 ## CI / CD
 
-master push 時に GitHub Actions が自動実行される。
+すべての PR と master push 時に GitHub Actions が自動実行される。
 
 | ジョブ | 条件 | 内容 |
 |---|---|---|
-| `Build & Check` | 常に実行 | build、migration 整合性、fresh DB の通知契約、既存 DB の backup / restore・移行検証 |
-| `Approve production migration` | `drizzle/` に変更がある場合のみ | protected environment `production-db` で対象 commit の承認を待つ |
-| `Migrate Neon` | 承認成功後 | 接続 preflight + `drizzle-kit migrate`（Neon 本番 DB に適用） |
+| `Build & Check` | PR と master push | build、migration 整合性、fresh DB の通知契約、既存 DB の backup / restore・移行検証 |
+| `Approve production migration` | master push で `drizzle/` に変更があり、検証が成功した場合 | protected environment `production-db` で対象 commit の承認を待つ |
+| `Migrate Neon` | master push の本番 migration 承認成功後 | 接続 preflight + `drizzle-kit migrate`（Neon 本番 DB に適用） |
+
+`Build & Check` は workflow の PostgreSQL サービスと専用テスト DB を使い、本番 Environment や Secret を必要としない。PR では本番承認・適用ジョブを実行しない。
 
 ### GitHub Environment の設定
 
@@ -21,7 +23,7 @@ master push 時に GitHub Actions が自動実行される。
 | `CI Actions` | `DIRECT_URL` Secret。Neon production の direct / unpooled 接続を登録する |
 | `production-db` | required reviewer と master だけを許可する deployment branch policy |
 
-`DIRECT_URL` が未設定だと CI は失敗する。登録・ローテーションは[接続先更新手順](./docs/ops/neon-production-connection-rotation.md)に従う。Neon 側の project / branch / role を更新しても GitHub Secret は自動更新されない。
+本番用 `DIRECT_URL` が未設定だと `Migrate Neon` は失敗する。登録・ローテーションは[接続先更新手順](./docs/ops/neon-production-connection-rotation.md)に従う。Neon 側の project / branch / role を更新しても GitHub Secret は自動更新されない。
 
 workflow の `environment: production-db` だけでは承認待ちは保証されないため、Settings または GitHub API で protection rule の存在を確認する。reviewer の個人情報や環境設定の実値は repository に記録しない。
 
