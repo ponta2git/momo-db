@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -21,6 +22,9 @@ export const members = pgTable("members", {
     .defaultNow()
 });
 
+export const LOGIN_ACCOUNT_ROLES = ["user", "operator", "admin"] as const;
+export type LoginAccountRole = (typeof LOGIN_ACCOUNT_ROLES)[number];
+
 export const momoLoginAccounts = pgTable(
   "momo_login_accounts",
   {
@@ -31,7 +35,7 @@ export const momoLoginAccounts = pgTable(
       onDelete: "restrict"
     }),
     loginEnabled: boolean("login_enabled").notNull().default(true),
-    isAdmin: boolean("is_admin").notNull().default(false),
+    role: text("role", { enum: LOGIN_ACCOUNT_ROLES }).notNull().default("user"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -42,7 +46,10 @@ export const momoLoginAccounts = pgTable(
   (table) => [
     index("momo_login_accounts_player_member_id_idx").on(table.playerMemberId),
     index("momo_login_accounts_login_enabled_idx").on(table.loginEnabled),
-    index("momo_login_accounts_is_admin_idx").on(table.isAdmin)
+    check(
+      "momo_login_accounts_role_check",
+      sql`${table.role} IN ('user', 'operator', 'admin')`
+    )
   ]
 );
 

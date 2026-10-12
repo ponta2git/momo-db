@@ -1,0 +1,2 @@
+ALTER TABLE "momo_login_accounts" ADD COLUMN "role" text;--> statement-breakpoint
+ALTER TABLE "momo_login_accounts" ADD CONSTRAINT "momo_login_accounts_role_check" CHECK ("momo_login_accounts"."role" IN ('user', 'operator', 'admin'));

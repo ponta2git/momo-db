@@ -435,6 +435,27 @@
       "when": 1791204865390,
       "tag": "0061_rank-outlook-publication-guards",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1791775954480,
+      "tag": "0062_add-login-account-role",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791775967126,
+      "tag": "0063_backfill-login-account-role",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1791775967945,
+      "tag": "0064_finalize-login-account-role",
+      "breakpoints": true
     }
   ]
 }
