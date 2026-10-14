@@ -121,3 +121,6 @@ jobs:
 
       - name: Run migration
         run: pnpm db:migrate:ci
+
+      - name: Verify applied migration history
+        run: pnpm db:verify:ci
