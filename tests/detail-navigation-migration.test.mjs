@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
-import { docker, expectedLoginAccountRoles, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { docker, expectedJobSchedulerRows, expectedLoginAccountRoles, retiredQueueTables, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 test('0057 preserves the complete restored database and adds valid bytewise navigation indexes', async () => {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -46,13 +46,13 @@ test('0057 preserves the complete restored database and adds valid bytewise navi
     copy = createTestClient(restored);
     assert.deepEqual(await snapshotDatabase(copy, tables), before);
     await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-    const after = await snapshotDatabase(copy, tables);
+    const after = await snapshotDatabase(copy, tables.filter(table => !retiredQueueTables.includes(table)));
     assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
     assert.deepEqual(after.rows, {
-      ...before.rows,
+      ...expectedJobSchedulerRows(before.rows),
       momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
-    }, 'Existing rows must change only by the documented role mapping');
+    }, 'Existing rows must change only by the documented role mapping and scheduler schema transition');
     const indexes = await copy`SELECT c.relname, i.indisvalid, i.indisunique, am.amname, pg_get_indexdef(i.indexrelid) AS definition
       FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
       WHERE c.relname IN ('held_events_navigation_idx','matches_navigation_idx') ORDER BY c.relname`;

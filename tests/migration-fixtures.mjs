@@ -42,3 +42,18 @@ export function expectedLoginAccountRoles(accounts) {
     return { ...account, role: is_admin ? 'admin' : 'user' };
   });
 }
+
+// The scheduler tail removes only transport tables; historical terminal inputs
+// remain absent rather than being fabricated during schema expansion.
+export const retiredQueueTables = ['ocr_queue_outbox', 'series_analysis_queue_outbox'];
+export function expectedJobSchedulerRows(rows) {
+  const expected = { ...rows };
+  for (const table of retiredQueueTables) delete expected[table];
+  if (expected.ocr_jobs) expected.ocr_jobs = expected.ocr_jobs.map(({ queue_schema_version, ...job }) => {
+    if (!['succeeded', 'failed', 'cancelled'].includes(job.status)) {
+      throw new Error('Nonterminal OCR needs an explicit cutover expectation');
+    }
+    return { ...job, input_snapshot: null, failure_retry_count: 0, lease_recovery_count: 0 };
+  });
+  return expected;
+}

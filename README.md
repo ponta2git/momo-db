@@ -92,11 +92,11 @@ summit の `pnpm setup` が momo-db の全 DB セットアップを自動的に�
 | [schema/catalog.ts](./src/schema/catalog.ts) | 作品・マップ・シーズン・事件のマスター、メンバー別名 |
 | [schema/attendance.ts](./src/schema/attendance.ts) | 出欠アンケート・回答、開催・参加者の履歴 |
 | [schema/matches.ts](./src/schema/matches.ts) | 試合下書き、確定試合、プレイヤー別結果・事件回数 |
-| [schema/ocr.ts](./src/schema/ocr.ts) | 入力画像、OCR ジョブ・下書き、読み取り操作、キュー送出意図 |
+| [schema/ocr.ts](./src/schema/ocr.ts) | 入力画像、入力snapshotを持つOCRジョブ・下書き、読み取り操作 |
 | [schema/discord-notifications.ts](./src/schema/discord-notifications.ts) | 通知・設定・対象・配送部分の保存形、状態定数・型 |
 | [notifications.ts](./src/notifications.ts) | アプリ間で送受信する通知 payload と ID の契約 |
 | [schema/analysis/operations.ts](./src/schema/analysis/operations.ts) | 分析操作の受付、キャンペーンと対象 |
-| [schema/analysis/jobs.ts](./src/schema/analysis/jobs.ts) | 分析ジョブ・要求・試行、実行枠、対応能力、キュー送出意図 |
+| [schema/analysis/jobs.ts](./src/schema/analysis/jobs.ts) | 分析ジョブ・要求・試行、実行枠、対応能力 |
 | [schema/analysis/artifacts.ts](./src/schema/analysis/artifacts.ts) | 分析成果物のヘッダーと集計・詳細データ |
 | [schema/analysis/publication.ts](./src/schema/analysis/publication.ts) | 分析の公開状態、作品ごとの入力・通知基準 |
 | [schema/analysis/checks.ts](./src/schema/analysis/checks.ts) | 分析テーブル間で共通の CHECK 制約式 |
@@ -104,6 +104,10 @@ summit の `pnpm setup` が momo-db の全 DB セットアップを自動的に�
 | [schema/types.ts](./src/schema/types.ts) | 内部で共用する PostgreSQL の列型 |
 
 分割によって変更箇所を絞れる一方、ファイル間の参照を追う必要が増える。同じ責務のテーブルと定数・型は一緒に読み、変更できる単位にまとめる。内部では依存先ファイルを直接 import し、公開入口を経由せず循環のない依存関係を保つ。通知の通信契約と保存形も、この境界に沿ってそれぞれのファイルで扱う。
+
+OCR・分析のジョブ行が永続キューの正本となる。OCR の `input_snapshot` は受付時の入力を固定し、入力versionを含む。アプリは保存後に入力を更新せず、実行回数・失敗再試行回数・リース回復回数を別列で管理する。DB は実行対象のversion付きobjectと画像参照を要求し、payload全体の意味・入力照合・実行の判断はconsumerが担う。snapshotなしの旧終端履歴は保持する。
+
+0068–0070 は旧writer停止後にまとめて適用する切替であり、旧OCRの未完了jobを終了し、関係するsubmission・下書き・OCR実行枠を整理して配送outboxを撤去する。分析のjob・要求・実行中リースは保持して新版consumerへ引き継ぐ。適用は既存のowner CIと本番承認を使い、consumerとの対応・停止確認は[正規手順](./docs/development.md#6-適用と-release-順序)に従う。
 
 変更後は `pnpm build` で `dist/` を再生成し、消費プロジェクトで `pnpm install` を再実行して `@momo/db` の成果物を更新する。
 

@@ -7,7 +7,6 @@ import {
   jsonb,
   pgTable,
   primaryKey,
-  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -152,16 +151,19 @@ export const ocrJobs = pgTable(
     id: text("id").primaryKey(),
     draftId: text("draft_id").notNull(),
     imageId: text("image_id").notNull(),
-    // v1 local worker input。queue_schema_version=2ではsource_image_idを正本にする。
+    // Retained for historical local-input jobs; new jobs use sourceImageId and inputSnapshot.
     imagePath: text("image_path"),
     sourceImageId: text("source_image_id").references(() => sourceImages.id, {
       onDelete: "restrict"
     }),
-    queueSchemaVersion: smallint("queue_schema_version").notNull().default(1),
     requestedScreenType: text("requested_screen_type").notNull(),
     detectedScreenType: text("detected_screen_type"),
     status: text("status").notNull(),
     attemptCount: integer("attempt_count").notNull().default(0),
+    // Accepted input is immutable; execution state and retry budgets live separately.
+    inputSnapshot: jsonb("input_snapshot"),
+    failureRetryCount: integer("failure_retry_count").notNull().default(0),
+    leaseRecoveryCount: integer("lease_recovery_count").notNull().default(0),
     workerId: text("worker_id"),
     availableAt: timestamp("available_at", { withTimezone: true })
       .notNull()
@@ -192,14 +194,16 @@ export const ocrJobs = pgTable(
     index("ocr_jobs_status_created_at_idx").on(table.status, table.createdAt),
     index("ocr_jobs_image_id_idx").on(table.imageId),
     index("ocr_jobs_source_image_id_idx").on(table.sourceImageId),
-    index("ocr_jobs_claimable_idx").on(table.status, table.availableAt),
+    index("ocr_jobs_claimable_idx")
+      .on(table.availableAt, table.createdAt, table.id)
+      .where(sql`${table.status} = 'queued'`),
     check(
-      "ocr_jobs_queue_schema_version_check",
-      sql`${table.queueSchemaVersion} IN (1, 2)`
+      "ocr_jobs_input_snapshot_check",
+      sql`(${table.inputSnapshot} IS NULL AND ${table.status} IN ('succeeded','failed','cancelled')) OR (${table.inputSnapshot} IS NOT NULL AND jsonb_typeof(${table.inputSnapshot}) = 'object' AND COALESCE(${table.inputSnapshot}->'schemaVersion' = '"2"'::jsonb, false) AND ${table.sourceImageId} IS NOT NULL)`
     ),
     check(
-      "ocr_jobs_input_contract_check",
-      sql`(${table.queueSchemaVersion} = 1 AND ${table.imagePath} IS NOT NULL) OR (${table.queueSchemaVersion} = 2 AND ${table.sourceImageId} IS NOT NULL)`
+      "ocr_jobs_retry_counts_check",
+      sql`${table.failureRetryCount} >= 0 AND ${table.leaseRecoveryCount} >= 0`
     ),
     check(
       "ocr_jobs_attempt_count_check",
@@ -275,74 +279,5 @@ export const ocrSubmissionMembers = pgTable(
     check("ocr_submission_members_hashes_check", sql`length(${table.uploadIdempotencyKeyHash}) = 64 AND ${table.uploadIdempotencyKeyHash} ~ '^[0-9a-f]{64}$' AND length(${table.imageSha256Hex}) = 64 AND ${table.imageSha256Hex} ~ '^[0-9a-f]{64}$'`),
     check("ocr_submission_members_bytes_check", sql`${table.imageByteLength} BETWEEN 1 AND 3145728`),
     check("ocr_submission_members_shape_check", sql`(${table.status} = 'pending' AND ${table.jobId} IS NULL AND ${table.failureCode} IS NULL) OR (${table.status} = 'registered' AND ${table.jobId} IS NOT NULL AND ${table.failureCode} IS NULL) OR (${table.status} = 'failed' AND ${table.jobId} IS NULL AND ${table.failureCode} IS NOT NULL AND ${table.failureCode} IN ('admission_failed','admission_timeout'))`)
-  ]
-);
-
-export const OCR_QUEUE_OUTBOX_STATUSES = [
-  "PENDING",
-  "IN_FLIGHT",
-  "DELIVERED",
-  "FAILED"
-] as const;
-
-export type OcrQueueOutboxStatus =
-  (typeof OCR_QUEUE_OUTBOX_STATUSES)[number];
-
-// source-of-truth: OCR Redis Streams enqueue intent の durable outbox。
-//   OCR job 作成 tx 内で enqueue intent を永続化し、commit 後 crash 時も再 publish できる。
-export const ocrQueueOutbox = pgTable(
-  "ocr_queue_outbox",
-  {
-    id: text("id").primaryKey(),
-    jobId: text("job_id")
-      .notNull()
-      .references(() => ocrJobs.id),
-    // unique: 1 job 1 enqueue intent の決定論キー。通常は `ocr-job:${jobId}`。
-    dedupeKey: text("dedupe_key").notNull(),
-    // source-of-truth: Redis Stream に送る key/value payload を request 時点の値で保持する。
-    streamPayload: jsonb("stream_payload").notNull(),
-    schemaVersion: smallint("schema_version").notNull().default(1),
-    status: text("status").notNull().default("PENDING"),
-    attemptCount: integer("attempt_count").notNull().default(0),
-    lastError: text("last_error"),
-    claimToken: uuid("claim_token"),
-    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
-    redisMessageId: text("redis_message_id"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow()
-  },
-  (table) => [
-    check(
-      "ocr_queue_outbox_stream_payload_object_check",
-      sql`jsonb_typeof(${table.streamPayload}) = 'object'`
-    ),
-    check(
-      "ocr_queue_outbox_status_check",
-      sql`${table.status} IN ('PENDING','IN_FLIGHT','DELIVERED','FAILED')`
-    ),
-    check(
-      "ocr_queue_outbox_attempt_count_check",
-      sql`${table.attemptCount} >= 0`
-    ),
-    check(
-      "ocr_queue_outbox_schema_version_check",
-      sql`${table.schemaVersion} IN (1, 2)`
-    ),
-    uniqueIndex("uq_ocr_queue_outbox_dedupe_active")
-      .on(table.dedupeKey)
-      .where(sql`status IN ('PENDING','IN_FLIGHT','DELIVERED')`),
-    index("idx_ocr_queue_outbox_status_next").on(
-      table.status,
-      table.nextAttemptAt
-    ),
-    index("idx_ocr_queue_outbox_job_id").on(table.jobId)
   ]
 );

@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
-import { docker, expectedLoginAccountRoles, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { docker, expectedJobSchedulerRows, expectedLoginAccountRoles, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 const previousIndex = 61;
 const finalIndex = 64;
@@ -90,10 +90,10 @@ test('role migration preserves restored accounts, sessions, references and histo
       await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
       const after = await snapshotDatabase(copy);
       assert.deepEqual(after.rows, {
-        ...before.rows,
+        ...expectedJobSchedulerRows(before.rows),
         series_radar_revisions: [],
         momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
-      }, 'Only is_admin to role may change; account values and every session/reference must survive');
+      }, 'Only role and scheduler schema transitions may change; account values and every session/reference must survive');
       assert.equal(after.history.length, journal().entries.length);
       assert.deepEqual(after.history.slice(0, before.history.length), before.history);
       assert.equal(after.rows.momo_login_accounts.filter(account => account.role === 'operator').length, 0);
