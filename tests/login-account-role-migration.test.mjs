@@ -92,6 +92,7 @@ test('role migration preserves restored accounts, sessions, references and histo
       assert.deepEqual(after.rows, {
         ...expectedJobSchedulerRows(before.rows),
         series_radar_revisions: [],
+        oauth_state_consumptions: [],
         momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
       }, 'Only role and scheduler schema transitions may change; account values and every session/reference must survive');
       assert.equal(after.history.length, journal().entries.length);
