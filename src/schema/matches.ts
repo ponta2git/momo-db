@@ -94,6 +94,15 @@ export const matchDrafts = pgTable(
       "match_drafts_match_no_in_event_check",
       sql`${table.matchNoInEvent} IS NULL OR ${table.matchNoInEvent} >= 1`
     ),
+    index("match_drafts_live_total_assets_image_idx")
+      .on(table.totalAssetsImageId)
+      .where(sql`${table.sourceImagesDeletedAt} IS NULL`),
+    index("match_drafts_live_revenue_image_idx")
+      .on(table.revenueImageId)
+      .where(sql`${table.sourceImagesDeletedAt} IS NULL`),
+    index("match_drafts_live_incident_log_image_idx")
+      .on(table.incidentLogImageId)
+      .where(sql`${table.sourceImagesDeletedAt} IS NULL`),
     index("match_drafts_status_updated_at_idx").on(table.status, table.updatedAt),
     index("match_drafts_created_by_status_idx").on(
       table.createdByMemberId,
@@ -188,6 +197,12 @@ export const matches = pgTable(
         OR
         (${table.noteVersion} > 0 AND ${table.noteUpdatedByAccountId} IS NOT NULL AND ${table.noteUpdatedAt} IS NOT NULL)
       )`
+    ),
+    index("matches_title_held_event_idx").on(table.gameTitleId, table.heldEventId),
+    index("matches_title_scope_idx").on(
+      table.gameTitleId,
+      table.seasonMasterId,
+      table.mapMasterId
     ),
     index("matches_held_event_id_idx").on(table.heldEventId),
     index("matches_created_by_account_id_idx").on(table.createdByAccountId),

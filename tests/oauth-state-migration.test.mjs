@@ -51,6 +51,7 @@ test('OAuth expansion preserves every restored row, active session and migration
   try {
     cpSync('./drizzle', folder, { recursive: true });
     const journal = JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8'));
+    const expectedMigrationCount = journal.entries.length;
     journal.entries = journal.entries.filter(entry => entry.idx <= 70);
     writeFileSync(join(folder, 'meta', '_journal.json'), JSON.stringify(journal));
     await withDatabase(async (source, name) => {
@@ -67,7 +68,7 @@ test('OAuth expansion preserves every restored row, active session and migration
         const after = await snapshotDatabase(copy);
         assert.deepEqual(after.rows, { ...before.rows, oauth_state_consumptions: [] });
         assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-        assert.equal(after.history.length, before.history.length + 1);
+        assert.equal(after.history.length, expectedMigrationCount);
         await assertOAuthSchema(copy);
       });
     });

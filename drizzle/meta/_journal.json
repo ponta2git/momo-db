@@ -505,6 +505,13 @@
       "when": 1792078373231,
       "tag": "0071_oauth-state-consumptions",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792140367260,
+      "tag": "0072_repository_query_indexes",
+      "breakpoints": true
     }
   ]
 }
