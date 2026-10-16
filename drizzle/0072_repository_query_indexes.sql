@@ -1,0 +1,7 @@
+CREATE INDEX "match_drafts_live_total_assets_image_idx" ON "match_drafts" USING btree ("total_assets_image_id") WHERE "match_drafts"."source_images_deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "match_drafts_live_revenue_image_idx" ON "match_drafts" USING btree ("revenue_image_id") WHERE "match_drafts"."source_images_deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "match_drafts_live_incident_log_image_idx" ON "match_drafts" USING btree ("incident_log_image_id") WHERE "match_drafts"."source_images_deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "matches_title_held_event_idx" ON "matches" USING btree ("game_title_id","held_event_id");--> statement-breakpoint
+CREATE INDEX "matches_title_scope_idx" ON "matches" USING btree ("game_title_id","season_master_id","map_master_id");--> statement-breakpoint
+CREATE INDEX "series_analysis_jobs_title_terminal_idx" ON "series_analysis_jobs" USING btree ("game_title_id","finished_at" DESC NULLS LAST,"id" DESC NULLS FIRST) WHERE "series_analysis_jobs"."work_kind" = 'analysis' AND "series_analysis_jobs"."status" IN ('succeeded','failed','timed_out');--> statement-breakpoint
+CREATE INDEX "series_analysis_jobs_recent_idx" ON "series_analysis_jobs" USING btree ("created_at" DESC NULLS FIRST,"id" DESC NULLS FIRST) WHERE "series_analysis_jobs"."work_kind" = 'analysis';

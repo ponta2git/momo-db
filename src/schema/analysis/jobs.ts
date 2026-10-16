@@ -115,6 +115,12 @@ export const seriesAnalysisJobs = pgTable(
       "series_analysis_jobs_terminal_shape_check",
       sql`(${table.status} IN ('succeeded','failed','timed_out')) = (${table.finishedAt} IS NOT NULL)`
     ),
+    index("series_analysis_jobs_title_terminal_idx")
+      .on(table.gameTitleId, table.finishedAt.desc().nullsLast(), table.id.desc().nullsFirst())
+      .where(sql`${table.workKind} = 'analysis' AND ${table.status} IN ('succeeded','failed','timed_out')`),
+    index("series_analysis_jobs_recent_idx")
+      .on(table.createdAt.desc().nullsFirst(), table.id.desc().nullsFirst())
+      .where(sql`${table.workKind} = 'analysis'`),
     uniqueIndex("series_analysis_jobs_active_title_unique")
       .on(table.gameTitleId)
       .where(sql`${table.status} IN ('queued','running')`),
