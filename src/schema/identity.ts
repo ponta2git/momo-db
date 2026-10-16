@@ -77,6 +77,18 @@ export const appSessions = pgTable(
   ]
 );
 
+// Records only a hash of each validated, consumed OAuth state until signed expiry.
+export const oauthStateConsumptions = pgTable(
+  "oauth_state_consumptions",
+  {
+    stateHash: text("state_hash").primaryKey(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
+  },
+  (table) => [
+    index("oauth_state_consumptions_expires_at_idx").on(table.expiresAt)
+  ]
+);
+
 // source-of-truth: HTTP Idempotency-Key の処理結果キャッシュ。
 //   POST 再送時に同じ account/endpoint/key へ保存済みレスポンスを返し、副作用の二重発生を防ぐ。
 export const idempotencyKeys = pgTable(

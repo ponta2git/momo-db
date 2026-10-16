@@ -498,6 +498,13 @@
       "when": 1791981634663,
       "tag": "0070_db-job-scheduler-contract",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792078373231,
+      "tag": "0071_oauth-state-consumptions",
+      "breakpoints": true
     }
   ]
 }

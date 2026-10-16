@@ -148,7 +148,7 @@ for (const holder of ['ocr', 'analysis']) {
         await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
         const after = await snapshotDatabase(copy);
         assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-        assert.equal(after.history.length, before.history.length + 3);
+        assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
         for (const table of retiredQueueTables) assert.equal(after.rows[table], undefined);
         const changed = new Set([...retiredQueueTables, 'ocr_jobs', 'ocr_submissions', 'match_drafts',
           ...(holder === 'ocr' ? ['worker_execution_slots'] : [])]);

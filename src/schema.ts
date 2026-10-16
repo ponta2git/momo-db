@@ -6,6 +6,7 @@ export {
   members,
   momoLoginAccounts,
   appSessions,
+  oauthStateConsumptions,
   idempotencyKeys
 } from "./schema/identity.js";
 export type { LoginAccountRole } from "./schema/identity.js";
