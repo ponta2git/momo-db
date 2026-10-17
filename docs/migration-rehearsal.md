@@ -4,9 +4,9 @@
 
 ## 準備
 
-Node 24、repository 固定 pnpm、Docker 28 以降、取得済みの PostgreSQL 18 image を使う。image 内に `nc` が必要で、`prepare` が検査する。作業 tree は未追跡ファイルを含め clean にし、候補を commit する。CLI は SHA・lockfile・migration 履歴の digest を固定し、以降に変更があれば停止する。
+Node 24、repository 固定 pnpm、Docker 28 以降、取得済みの PostgreSQL 18 image を使う。image 内に `nc` と system CA bundle が必要で、`prepare` が検査する。作業 tree は未追跡ファイルを含め clean にし、候補を commit する。CLI は SHA・lockfile・migration 履歴の digest を固定し、以降に変更があれば停止する。
 
-source と locale metadata が一致する image を選ぶ。Alpine は `C.UTF-8` の LC_COLLATE を `C` として初期化する場合があり、その差は許容しない。Debian 版が必要なら、データや接続設定を含まない stdin Dockerfile から中継用 `nc` を追加する。作成後の image ID は `prepare` が固定する。
+source と locale metadata が一致する image を選ぶ。Alpine は `C.UTF-8` の LC_COLLATE を `C` として初期化する場合があり、その差は許容しない。Debian 版が必要なら、データや接続設定を含まない stdin Dockerfile から中継用 `nc` と system CA bundle を追加する。作成後の image ID は `prepare` が固定する。
 
 ```sh
 docker build --tag momo-db-rehearsal:18 - < scripts/migration/postgres.Dockerfile
@@ -63,6 +63,7 @@ pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/mani
 - 全 user schema の構造、全 table の保存行と件数、migration ledger を比較する。全行を PostgreSQL の JSON 文字列表現から SHA-256 にし、その固定長 digest を並べて table ごとの multiset を hash する。巨大な保存値そのものを sort / 転送せず、重複行と全値を含める。数値を JavaScript の number に変換しない。
 - owner / ACL は完全な元棚卸しを private に保持するが、ローカル restore は owner を置換し ACL を省く。構造比較はこれらを除外するため、実アプリ role / SECURITY DEFINER の挙動は別の必須 gate とする。
 - locale 名だけでなく provider・rules・記録済み / 実際の collation version を比較する。source の builtin / libc 設定で初期化し、復元前に一致を確認する。version drift、未対応の ICU 等は停止し、名前の正規化だけで同一とみなさない。
+- constraint は元の定義を private inventory に保持し、比較には PostgreSQL 自身の deparser で不要な括弧を抑えた表現を使う。dump / restore に伴う同じ AND 条件の括弧差だけで失敗させず、AND / OR の優先順位や条件変更は検出する。この比較表現を復元用 SQL としては使わない。
 - 稼働中の snapshot では sequence は MVCC に従わない。sequence の元 DB と同時点の保全や停止継続は証明しない。二つの復元 copy 間では identity sequence を含め一致を検査する。
 - 初期 comparator は schema・アプリ保存値の変更を一切許容せず、pending tail がある場合は適用前に停止する。ID 等の変換には期待 schema・列別 mapping と専用 comparator を追加し、その候補で再リハーサルする。
 - 新規の移行 copy では正規 migrator を再実行し、二回目が schema・ledger・保存値・sequence を変えないことまで検証する。途中終了後の既存 copy は読取り比較で分類し、再適用しない。二回目実行の証拠が残っていなければ未確認として fresh run を求める。
