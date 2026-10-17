@@ -24,6 +24,13 @@ export function databaseLocation(value, { local = false } = {}) {
     PGSSLMODE: url.searchParams.get('sslmode') ?? (local ? 'disable' : 'require'),
   };
   requireCondition(['disable', 'require', 'verify-ca', 'verify-full'].includes(configuration.PGSSLMODE), 'INVALID_SSL_MODE');
+  if (configuration.PGSSLMODE !== 'disable') {
+    // The disposable client image has the system trust store, not a user's
+    // ~/.postgresql/root.crt. Never fix a missing root file by disabling TLS
+    // certificate/hostname verification.
+    configuration.PGSSLMODE = 'verify-full';
+    configuration.PGSSLROOTCERT = 'system';
+  }
   if (url.searchParams.has('channel_binding')) {
     configuration.PGCHANNELBINDING = url.searchParams.get('channel_binding');
     requireCondition(['disable', 'prefer', 'require'].includes(configuration.PGCHANNELBINDING), 'INVALID_CHANNEL_BINDING');
