@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stat } from 'node:fs/promises';
 import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
-import { connect, databaseLocation, inspectConnection, fingerprint, compareFingerprints, historyState } from './database.mjs';
+import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
@@ -80,9 +80,7 @@ async function withDatabase(url, operation) {
 }
 
 function compareRestore(before, after, { sequences = false } = {}) {
-  for (const key of ['encoding', 'collation', 'ctype']) {
-    requireCondition(before.connection.server[key] === after.connection.server[key], 'DATABASE_LOCALE_DIFFERS');
-  }
+  compareDatabaseLocale(before.connection.server, after.connection.server);
   requireCondition(before.connection.ledgerDigest === after.connection.ledgerDigest, 'RESTORED_LEDGER_DIFFERS');
   requireCondition(digest(schemaStructure(before.schema)) === digest(schemaStructure(after.schema)), 'RESTORED_SCHEMA_DIFFERS');
   compareFingerprints(before.rows, after.rows, { sequences });
@@ -187,8 +185,12 @@ export async function runAction(action, manifest, directory, key, save, { signal
     const previous = manifest.baselineDigest ? await readReport('baseline', manifest.baselineDigest) : null;
     manifest.state = 'restore-started';
     await save();
-    await startLocal(manifest, save, { beforeMutation, signal });
+    await startLocal(manifest, save, { beforeMutation, signal, server: before.connection.server });
     return withLocalConnection(manifest, async () => {
+        // Check provider, rules and actual collation version before loading
+        // saved rows. Equal locale names alone do not imply equal behavior.
+        const server = await withDatabase(localUrl(manifest, baselineName), inspectServer);
+        compareDatabaseLocale(before.connection.server, server);
         const existing = await databaseState(manifest, baselineName);
         if (existing !== 'populated') await restoreArchive(manifest, archive, baselineName, key, { beforeMutation, signal });
         const after = await withDatabase(localUrl(manifest, baselineName), sql => audit(sql));
