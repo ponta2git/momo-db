@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:net';
 import { command, start } from './process.mjs';
 import { decryptStream, fileDigest, requireCondition } from './files.mjs';
-import { connect } from './database.mjs';
+import { connect, databaseLocale } from './database.mjs';
 
 const ownerLabel = 'io.momo.migration.run';
 const databaseNames = new Set(['momo_rehearsal_baseline', 'momo_rehearsal_migration', 'momo_rehearsal_smoke', 'momo_rehearsal_recovery']);
@@ -106,8 +106,25 @@ export async function withLocalConnection(manifest, operation, { signal } = {}) 
   }
 }
 
-export async function startLocal(manifest, save, { beforeMutation = noMutationCheck, signal } = {}) {
+export function localInitdbArguments(server) {
+  if (!server) return '--encoding=UTF8 --locale-provider=libc --locale=C.UTF-8';
+  const locale = databaseLocale(server);
+  requireCondition(locale.encoding === 'UTF8' && ['b', 'c'].includes(locale.localeProvider) && locale.icuRules === null,
+    'DATABASE_LOCALE_REQUIRES_LOCAL_IMAGE_DESIGN');
+  requireCondition([locale.collation, locale.ctype].every(value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.@+-]*$/.test(value)),
+    'UNSUPPORTED_DATABASE_LOCALE');
+  const args = ['--encoding=UTF8', `--locale-provider=${locale.localeProvider === 'b' ? 'builtin' : 'libc'}`,
+    `--lc-collate=${locale.collation}`, `--lc-ctype=${locale.ctype}`];
+  if (locale.localeProvider === 'b') {
+    requireCondition(['C', 'C.UTF-8', 'PG_UNICODE_FAST'].includes(locale.locale), 'UNSUPPORTED_BUILTIN_LOCALE');
+    args.push(`--builtin-locale=${locale.locale}`);
+  } else requireCondition(locale.locale === null, 'UNSUPPORTED_DATABASE_LOCALE');
+  return args.join(' ');
+}
+
+export async function startLocal(manifest, save, { beforeMutation = noMutationCheck, signal, server } = {}) {
   assertIdentity(manifest);
+  const initdb = localInitdbArguments(server);
   if (manifest.local?.container) { await assertOwned(manifest); return; }
   requireCondition(!manifest.local, 'LOCAL_START_INCOMPLETE_REQUIRES_INSPECTION');
   const suffix = manifest.runId.replaceAll('-', '');
@@ -128,7 +145,7 @@ export async function startLocal(manifest, save, { beforeMutation = noMutationCh
     '--memory', '3g', '--memory-swap', '3g',
     '--tmpfs', '/var/lib/postgresql:rw,nosuid,size=2147483648',
     '--env', 'POSTGRES_HOST_AUTH_METHOD=trust', '--env', 'POSTGRES_DB=momo_rehearsal_baseline',
-    '--env', 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C.UTF-8',
+    '--env', `POSTGRES_INITDB_ARGS=${initdb}`,
     manifest.postgres.id], { signal });
   requireCondition(fullId(container), 'OWNED_CONTAINER_REQUIRED');
   manifest.local.container = container;

@@ -11,10 +11,10 @@ import pg from 'pg';
 import { createWorkspace, createKey, loadKey, privateDirectory, privateFile,
   encryptStream, decryptStream, readJson, writeJson, withRunLock, digest, fileDigest } from '../scripts/migration/files.mjs';
 import { command } from '../scripts/migration/process.mjs';
-import { databaseLocation, connect, historyState, fingerprint, compareFingerprints, inspectConnection } from '../scripts/migration/database.mjs';
+import { databaseLocation, connect, historyState, fingerprint, compareFingerprints, inspectConnection, inspectServer, compareDatabaseLocale } from '../scripts/migration/database.mjs';
 import { inventoryClient } from '../scripts/migration/sql-client.mjs';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
-import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection } from '../scripts/migration/local.mjs';
+import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection, localInitdbArguments } from '../scripts/migration/local.mjs';
 import { main, runAction, compareMigration } from '../scripts/migration/run.mjs';
 import { expectedMigrationHistory } from '../scripts/check-migration-history.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
@@ -39,6 +39,20 @@ async function withDatabase(run) {
 }
 
 const codeIs = code => error => error.code === code && error.message === code;
+const builtinLocale = { encoding: 'UTF8', collation: 'C.UTF-8', ctype: 'C.UTF-8', localeProvider: 'b',
+  locale: 'C.UTF-8', icuRules: null, collationVersion: '1', actualCollationVersion: '1' };
+
+test('equal locale names cannot hide different providers, rules or collation versions', () => {
+  assert.match(localInitdbArguments(builtinLocale), /--locale-provider=builtin/);
+  assert.match(localInitdbArguments(builtinLocale), /--builtin-locale=C.UTF-8/);
+  for (const difference of [{ localeProvider: 'c' }, { icuRules: 'different-rules' },
+    { collationVersion: '2', actualCollationVersion: '2' }, { collation: 'C' }]) {
+    assert.throws(() => compareDatabaseLocale(builtinLocale, { ...builtinLocale, ...difference }), codeIs('DATABASE_LOCALE_DIFFERS'));
+  }
+  assert.throws(() => compareDatabaseLocale(builtinLocale, { ...builtinLocale, actualCollationVersion: '2' }), codeIs('DATABASE_COLLATION_VERSION_DRIFT'));
+  assert.throws(() => localInitdbArguments({ ...builtinLocale, collation: 'C.UTF-8 --extra-option' }), codeIs('UNSUPPORTED_DATABASE_LOCALE'));
+  assert.throws(() => localInitdbArguments({ ...builtinLocale, localeProvider: 'i' }), codeIs('DATABASE_LOCALE_REQUIRES_LOCAL_IMAGE_DESIGN'));
+});
 function collector(chunks) {
   return new Writable({ write(chunk, _encoding, callback) { chunks.push(Buffer.from(chunk)); callback(); } });
 }
@@ -340,7 +354,7 @@ async function withRunnerCommands(run) {
 test('restore persists its started state and refuses a changed candidate before creating local resources', async () => {
   await withDirectory(async directory => withRunnerCommands(async commands => {
     const key = randomBytes(32);
-    const source = { fixture: 'authenticated-source-report' };
+    const source = { fixture: 'authenticated-source-report', connection: { server: builtinLocale } };
     const manifest = { ...ownedFixture().manifest, candidate: commands.candidate, local: null,
       state: 'snapshotted', snapshot: { auditDigest: digest(source) }, checks: {} };
     await writeJson(join(directory, 'source.json.enc'), source, key);
@@ -398,12 +412,16 @@ test('owned database retries inspect committed work, verify schemas and prove a 
     };
     t.mock.method(console, 'log', () => {});
     try {
-      await startLocal(manifest, save);
+      // C is accepted verbatim by both musl and glibc. The builtin provider's
+      // actual comparison locale remains C.UTF-8 and must also be retained.
+      const fixtureLocale = { ...builtinLocale, collation: 'C', ctype: 'C' };
+      await startLocal(manifest, save, { server: fixtureLocale });
       await withLocalConnection(manifest, async () => {
         assert.equal(await databaseState(manifest, 'momo_rehearsal_baseline'), 'empty');
         assert.equal(await databaseState(manifest, 'momo_rehearsal_migration'), 'missing');
         const baseline = connect(localUrl(manifest, 'momo_rehearsal_baseline'), { readOnly: false });
         try {
+          compareDatabaseLocale(fixtureLocale, await inspectServer(baseline));
           await baseline.unsafe(`CREATE SCHEMA drizzle;
             CREATE TABLE drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint);
             CREATE TABLE public.rehearsal_values (id bigint PRIMARY KEY, value text NOT NULL);

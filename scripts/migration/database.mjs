@@ -56,11 +56,32 @@ export function historyState(expected, actual) {
   return actual.length === expected.length ? 'target' : 'prefix';
 }
 
-export async function inspectConnection(sql, repository) {
+const localeFields = ['encoding', 'collation', 'ctype', 'localeProvider', 'locale', 'icuRules', 'collationVersion', 'actualCollationVersion'];
+
+export function databaseLocale(server) {
+  requireCondition(server && localeFields.every(name => Object.hasOwn(server, name) &&
+    (typeof server[name] === 'string' || server[name] === null)), 'DATABASE_LOCALE_METADATA_REQUIRED');
+  requireCondition(server.collationVersion === server.actualCollationVersion, 'DATABASE_COLLATION_VERSION_DRIFT');
+  return Object.fromEntries(localeFields.map(name => [name, server[name]]));
+}
+
+export function compareDatabaseLocale(before, after) {
+  requireCondition(digest(databaseLocale(before)) === digest(databaseLocale(after)), 'DATABASE_LOCALE_DIFFERS');
+}
+
+export async function inspectServer(sql) {
   const [server] = await sql`SELECT current_setting('server_version_num') AS version,
     current_setting('TimeZone') AS timezone, current_database() AS database,
-    pg_encoding_to_char(encoding) AS encoding, datcollate AS collation, datctype AS ctype
+    pg_encoding_to_char(encoding) AS encoding, datcollate AS collation, datctype AS ctype,
+    datlocprovider AS "localeProvider", datlocale AS locale, daticurules AS "icuRules",
+    datcollversion AS "collationVersion", pg_database_collation_actual_version(oid) AS "actualCollationVersion"
     FROM pg_database WHERE datname = current_database()`;
+  databaseLocale(server);
+  return server;
+}
+
+export async function inspectConnection(sql, repository) {
+  const server = await inspectServer(sql);
   const ledger = (await sql`SELECT hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations ORDER BY id`)
     .map(row => ({ hash: row.hash, created_at: row.created_at }));
   const expected = expectedMigrationHistory(`${repository}/drizzle`);
