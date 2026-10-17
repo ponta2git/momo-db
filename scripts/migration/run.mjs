@@ -7,7 +7,7 @@ import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectConnection, fingerprint, compareFingerprints, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
-import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, localUrl, cleanupLocal } from './local.mjs';
+import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
   writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
 
@@ -61,11 +61,6 @@ export function schemaStructure(schema) {
   return visit(schema);
 }
 
-function applicationRows(value) {
-  return { ...value, tables: value.tables.filter(table => table.schema !== 'drizzle'),
-    sequences: value.sequences.filter(sequence => sequence.schema !== 'drizzle') };
-}
-
 async function audit(sql, { identifiers = false, sequences = true } = {}) {
   const connection = await inspectConnection(sql, repository);
   requireCondition(Number(connection.server.version) >= 180000 && Number(connection.server.version) < 190000, 'POSTGRES_18_REQUIRED');
@@ -93,6 +88,20 @@ function compareRestore(before, after, { sequences = false } = {}) {
   compareFingerprints(before.rows, after.rows, { sequences });
 }
 
+export function compareMigration(before, after) {
+  // A row-only comparison cannot certify indexes, constraints, functions, or
+  // empty tables. Pending tails need a reviewed expected target schema before
+  // this generic preservation runner may apply them.
+  requireCondition(before.connection.pending.length === 0, 'PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR');
+  requireCondition(historyState(expectedMigrationHistory(`${repository}/drizzle`), after.connection.ledger) === 'target', 'TARGET_LEDGER_REQUIRED');
+  compareRestore(before, after, { sequences: true });
+  requireCondition(digest(before.schema) === digest(after.schema), 'MIGRATED_SCHEMA_DIFFERS');
+}
+
+async function assertCandidate(manifest) {
+  requireCondition(digest(await candidate()) === digest(manifest.candidate), 'CANDIDATE_CHANGED');
+}
+
 function summary(manifest) {
   return { formatVersion: 1, runId: manifest.runId, candidate: manifest.candidate.sha, state: manifest.state,
     snapshot: manifest.snapshot ? { mode: manifest.snapshot.mode, archiveDigest: manifest.snapshot.archiveDigest,
@@ -101,23 +110,39 @@ function summary(manifest) {
     durationsMs: manifest.durationsMs };
 }
 
-async function runAction(action, manifest, directory, key, save) {
+export async function runAction(action, manifest, directory, key, save, { signal } = {}) {
   const report = name => resolve(directory, `${name}.json.enc`);
   const archive = resolve(directory, 'source.dump.enc');
+  const beforeMutation = async () => {
+    requireCondition(!signal?.aborted, 'REHEARSAL_INTERRUPTED');
+    await assertCandidate(manifest);
+  };
+  const readReport = async (name, expectedDigest) => {
+    const value = await readJson(report(name), key);
+    requireCondition(typeof expectedDigest === 'string' && digest(value) === expectedDigest, 'REPORT_DIGEST_MISMATCH');
+    return value;
+  };
+  const writeReport = async (name, value) => {
+    await beforeMutation();
+    await writeJson(report(name), value, key);
+    return digest(value);
+  };
   if (action === 'status') return;
   if (action === 'cleanup') { await cleanupLocal(manifest, save); manifest.state = 'cleaned'; return; }
-  requireCondition(digest(await candidate()) === digest(manifest.candidate), 'CANDIDATE_CHANGED');
+  await beforeMutation();
 
   if (action === 'inspect') {
     const inspection = await withDatabase(await sourceUrl(manifest, key), sql => audit(sql, { identifiers: true, sequences: false }));
-    await writeJson(report('inspection'), inspection, key);
+    await writeReport('inspection', inspection);
     manifest.checks.sourceInventory = true;
     manifest.inspection = { digest: digest(inspection), blockers: inspection.identifiers.blockers.length,
       unresolvedColumns: inspection.identifiers.unresolved.length };
     return;
   }
   if (action === 'snapshot') {
-    requireCondition(manifest.state === 'prepared', 'SNAPSHOT_ALREADY_STARTED');
+    requireCondition(['prepared', 'snapshot-started'].includes(manifest.state), 'SNAPSHOT_ALREADY_STARTED');
+    manifest.state = 'snapshot-started';
+    await save();
     const url = await sourceUrl(manifest, key);
     const sql = connect(url);
     try {
@@ -128,17 +153,22 @@ async function runAction(action, manifest, directory, key, save) {
         // Audit before applying any migration, in the exact dump snapshot.
         const baseline = await audit(transaction, { identifiers: true, sequences: false });
         requireCondition(before.ledgerDigest === baseline.connection.ledgerDigest, 'SOURCE_LEDGER_CHANGED');
+        // Keep the completed inventory even if the subsequent dump fails. It
+        // remains provisional until the archive and both ledger checks pass.
+        manifest.sourceAuditDigest = await writeReport('source', baseline);
+        await save();
         const configuration = databaseLocation(url).configuration;
         const environment = { ...process.env, ...configuration,
           PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=300000 -c lock_timeout=10000', PGAPPNAME: 'momo-db-rehearsal-dump' };
         const names = [...Object.keys(configuration), 'PGOPTIONS', 'PGAPPNAME'];
         const args = ['run', '--rm', '--interactive', ...names.flatMap(name => ['--env', name]),
           manifest.postgres.id, 'pg_dump', '--format=custom', '--no-password', `--snapshot=${snapshot}`];
+        await beforeMutation();
         const { child, completed } = start('docker', args, { env: environment, failureCode: 'SOURCE_DUMP_FAILED' });
         child.stdin.end();
         try { await Promise.all([encryptStream(child.stdout, archive, key), completed]); }
         catch (error) { child.kill('SIGKILL'); await completed.catch(() => {}); throw error; }
-        await writeJson(report('source'), baseline, key);
+        await beforeMutation();
         manifest.snapshot = { mode: 'online-consistent-snapshot', capturedAt: new Date().toISOString(),
           archiveDigest: await fileDigest(archive), auditDigest: digest(baseline),
           bytes: (await stat(archive)).size, tableCount: baseline.rows.tables.length,
@@ -152,58 +182,102 @@ async function runAction(action, manifest, directory, key, save) {
     return;
   }
   if (action === 'restore') {
-    requireCondition(manifest.state === 'snapshotted', 'SNAPSHOT_REQUIRED');
-    await startLocal(manifest, save);
-    await restoreArchive(manifest, archive, baselineName, key);
-    const before = await readJson(report('source'), key);
-    const after = await withDatabase(localUrl(manifest, baselineName), sql => audit(sql));
-    compareRestore(before, after);
-    await writeJson(report('baseline'), after, key);
-    manifest.state = 'restored';
-    manifest.checks.restore = true;
-    return;
-  }
-  await assertOwned(manifest);
-  if (action === 'rehearse') {
-    requireCondition(manifest.state === 'restored', 'RESTORED_BASELINE_REQUIRED');
-    await createDatabase(manifest, migrationName, baselineName);
-    manifest.state = 'migration-started';
+    requireCondition(['snapshotted', 'restore-started', 'restored'].includes(manifest.state), 'SNAPSHOT_REQUIRED');
+    const before = await readReport('source', manifest.snapshot?.auditDigest);
+    const previous = manifest.baselineDigest ? await readReport('baseline', manifest.baselineDigest) : null;
+    manifest.state = 'restore-started';
     await save();
-    const target = localUrl(manifest, migrationName);
-    databaseLocation(target, { local: true });
-    await command('pnpm', ['db:migrate:ci'], { cwd: repository, env: { ...process.env, DIRECT_URL: target }, failureCode: 'LOCAL_MIGRATION_FAILED' });
-    manifest.state = 'migrated';
-  }
-  if (action === 'rehearse' || action === 'verify') {
-    requireCondition(['migration-started', 'migrated', 'verified', 'recovery-verified'].includes(manifest.state), 'MIGRATION_REQUIRED');
-    const before = await readJson(report('baseline'), key);
-    const after = await withDatabase(localUrl(manifest, migrationName), sql => audit(sql));
-    requireCondition(historyState(expectedMigrationHistory(`${repository}/drizzle`), after.connection.ledger) === 'target', 'TARGET_LEDGER_REQUIRED');
-    // The initial command permits no application data differences. Future
-    // transformations need a reviewed, column-specific comparator before use.
-    compareFingerprints(applicationRows(before.rows), applicationRows(after.rows));
-    await writeJson(report('migrated'), after, key);
-    manifest.state = 'verified';
-    manifest.checks.migration = true;
-    manifest.checks.savedRows = true;
-    return;
-  }
-  if (action === 'recover-rehearsal') {
-    requireCondition(manifest.state === 'verified', 'VERIFIED_MIGRATION_REQUIRED');
-    await restoreArchive(manifest, archive, recoveryName, key);
-    const before = await readJson(report('source'), key);
-    const after = await withDatabase(localUrl(manifest, recoveryName), sql => audit(sql));
-    compareRestore(before, after);
-    // Compare sequences to the baseline restore of the same archive, because
-    // sequence state is not MVCC and cannot be certified by a hot snapshot.
-    const baseline = await readJson(report('baseline'), key);
-    compareRestore(baseline, after, { sequences: true });
-    await writeJson(report('recovered'), after, key);
-    manifest.state = 'recovery-verified';
-    manifest.checks.databaseRecovery = true;
-    return;
-  }
-  throw new RehearsalError('UNKNOWN_COMMAND');
+    await startLocal(manifest, save, { beforeMutation, signal });
+    return withLocalConnection(manifest, async () => {
+        const existing = await databaseState(manifest, baselineName);
+        if (existing !== 'populated') await restoreArchive(manifest, archive, baselineName, key, { beforeMutation, signal });
+        const after = await withDatabase(localUrl(manifest, baselineName), sql => audit(sql));
+        compareRestore(before, after);
+        if (previous) compareRestore(previous, after, { sequences: true });
+        manifest.baselineDigest = await writeReport('baseline', after);
+        manifest.state = 'restored';
+        manifest.checks.restore = true;
+      }, { signal });
+    }
+    return withLocalConnection(manifest, async () => {
+    if (action === 'rehearse') {
+      requireCondition(['restored', 'migration-started', 'migrated', 'verified'].includes(manifest.state), 'RESTORED_BASELINE_REQUIRED');
+      const before = await readReport('baseline', manifest.baselineDigest);
+      requireCondition(before.connection.pending.length === 0, 'PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR');
+      const baseline = await withDatabase(localUrl(manifest, baselineName), sql => audit(sql));
+      compareMigration(before, baseline);
+      manifest.state = 'migration-started';
+      await save();
+      const existing = await databaseState(manifest, migrationName);
+      if (existing === 'missing') {
+        await createDatabase(manifest, migrationName, baselineName, { beforeMutation });
+        const target = localUrl(manifest, migrationName);
+        databaseLocation(target, { local: true });
+        const migrate = async () => {
+          await assertOwned(manifest);
+          await beforeMutation();
+          await command('pnpm', ['db:migrate:ci'], { cwd: repository, env: { ...process.env, DIRECT_URL: target }, failureCode: 'LOCAL_MIGRATION_FAILED', signal });
+        };
+        await migrate();
+        const first = await withDatabase(target, sql => audit(sql));
+        compareMigration(before, first);
+        manifest.firstMigrationDigest = await writeReport('migrated-first', first);
+        manifest.checks.migratorFirstRun = true;
+        manifest.state = 'migrated';
+        await save();
+        // The second normal migrator invocation must preserve the full local
+        // schema, ledger, saved values and sequence state from the first pass.
+        await migrate();
+        const second = await withDatabase(target, sql => audit(sql));
+        compareMigration(first, second);
+        manifest.migratedDigest = await writeReport('migrated', second);
+        manifest.checks.migratorNoop = true;
+        await save();
+      } else {
+        // A previous command may have committed before its process or manifest
+        // write was interrupted. Existing databases are only inspected; an
+        // unknown/partial state never triggers a blind CREATE or migrator replay.
+        requireCondition(existing === 'populated', 'EXISTING_MIGRATION_DATABASE_REQUIRES_INSPECTION');
+      }
+    }
+    if (action === 'rehearse' || action === 'verify') {
+      requireCondition(['migration-started', 'migrated', 'verified', 'recovery-verified'].includes(manifest.state), 'MIGRATION_REQUIRED');
+      const before = await readReport('baseline', manifest.baselineDigest);
+      const after = await withDatabase(localUrl(manifest, migrationName), sql => audit(sql));
+      compareMigration(before, after);
+      if (manifest.migratedDigest) compareMigration(await readReport('migrated', manifest.migratedDigest), after);
+      manifest.migratedDigest = await writeReport('migrated', after);
+      if (!manifest.checks.migratorNoop) {
+        manifest.checks.migratorNoop = false;
+        const incomplete = 'interrupted-migrator-execution-requires-fresh-run';
+        if (!manifest.incomplete.includes(incomplete)) manifest.incomplete.push(incomplete);
+      }
+      manifest.state = 'verified';
+      manifest.checks.migration = true;
+      manifest.checks.migrationSchema = true;
+      manifest.checks.savedRows = true;
+      return;
+    }
+    if (action === 'recover-rehearsal') {
+      requireCondition(['verified', 'recovery-started', 'recovery-verified'].includes(manifest.state), 'VERIFIED_MIGRATION_REQUIRED');
+      const before = await readReport('source', manifest.snapshot?.auditDigest);
+      const baseline = await readReport('baseline', manifest.baselineDigest);
+      manifest.state = 'recovery-started';
+      await save();
+      const existing = await databaseState(manifest, recoveryName);
+      if (existing !== 'populated') await restoreArchive(manifest, archive, recoveryName, key, { beforeMutation, signal });
+      const after = await withDatabase(localUrl(manifest, recoveryName), sql => audit(sql));
+      compareRestore(before, after);
+      // Compare sequences to the baseline restore of the same archive, because
+      // sequence state is not MVCC and cannot be certified by a hot snapshot.
+      compareRestore(baseline, after, { sequences: true });
+      manifest.recoveredDigest = await writeReport('recovered', after);
+      manifest.state = 'recovery-verified';
+      manifest.checks.databaseRecovery = true;
+      return;
+    }
+    throw new RehearsalError('UNKNOWN_COMMAND');
+  }, { signal });
 }
 
 export async function main(args) {
@@ -216,6 +290,7 @@ export async function main(args) {
     const source = await readJson(options['source-config'], key);
     const identity = databaseLocation(source.sourceUrl).identity;
     const postgres = await resolvePostgresImage(options['postgres-image'] ?? 'postgres:18-alpine');
+    requireCondition(digest(await candidate()) === digest(fixed), 'CANDIDATE_CHANGED');
     directory = await createWorkspace(options['run-dir'], repository);
     path = resolve(directory, 'manifest.json.enc');
     manifest = { formatVersion: 1, runId: randomUUID(), candidate: fixed, postgres,
@@ -223,20 +298,43 @@ export async function main(args) {
       source: { configuration: options['source-config'], identity }, local: null, checks: {}, durationsMs: {},
       incomplete: ['column-mapping-and-consumer-contracts', 'application-role-behavior', 'consumer-smoke-and-connection-switch',
         'final-continuous-freeze-snapshot', 'production-approval-and-cutover'] };
+    await assertCandidate(manifest);
     await writeJson(path, manifest, key);
   } else {
     requireCondition(isAbsolute(options.manifest ?? ''), 'ABSOLUTE_MANIFEST_PATH_REQUIRED');
     path = options.manifest;
     directory = dirname(path);
     await privateDirectory(directory);
-    manifest = await readJson(path, key);
-    requireCondition(manifest.formatVersion === 1, 'UNSUPPORTED_MANIFEST_VERSION');
     await withRunLock(directory, async () => {
+      // Reading before the lock permits a completed operation to be overwritten
+      // by a contender holding an older manifest after it acquires the lock.
+      manifest = await readJson(path, key);
+      requireCondition(manifest.formatVersion === 1, 'UNSUPPORTED_MANIFEST_VERSION');
       const started = performance.now();
-      const save = () => writeJson(path, manifest, key);
-      await runAction(action, manifest, directory, key, save);
-      manifest.durationsMs[action] = Math.round(performance.now() - started);
-      await save();
+      const controller = ['restore', 'rehearse', 'verify', 'recover-rehearsal'].includes(action) ? new AbortController() : null;
+      const interrupt = () => controller.abort();
+      if (controller) {
+        process.once('SIGINT', interrupt);
+        process.once('SIGTERM', interrupt);
+      }
+      const save = async () => {
+        requireCondition(!controller?.signal.aborted, 'REHEARSAL_INTERRUPTED');
+        if (!['status', 'cleanup'].includes(action)) await assertCandidate(manifest);
+        await writeJson(path, manifest, key);
+      };
+      try {
+        await runAction(action, manifest, directory, key, save, { signal: controller?.signal });
+        manifest.durationsMs[action] = Math.round(performance.now() - started);
+        await save();
+      } catch (error) {
+        if (controller?.signal.aborted) throw new RehearsalError('REHEARSAL_INTERRUPTED');
+        throw error;
+      } finally {
+        if (controller) {
+          process.removeListener('SIGINT', interrupt);
+          process.removeListener('SIGTERM', interrupt);
+        }
+      }
     });
   }
   console.log(JSON.stringify(summary(manifest), null, 2));

@@ -3,18 +3,20 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { createServer } from 'node:net';
+import { createServer, createConnection } from 'node:net';
 import { Readable, Writable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import pg from 'pg';
 import { createWorkspace, createKey, loadKey, privateDirectory, privateFile,
-  encryptStream, decryptStream, readJson, writeJson, withRunLock } from '../scripts/migration/files.mjs';
+  encryptStream, decryptStream, readJson, writeJson, withRunLock, digest, fileDigest } from '../scripts/migration/files.mjs';
 import { command } from '../scripts/migration/process.mjs';
-import { databaseLocation, connect, historyState, fingerprint, compareFingerprints } from '../scripts/migration/database.mjs';
+import { databaseLocation, connect, historyState, fingerprint, compareFingerprints, inspectConnection } from '../scripts/migration/database.mjs';
 import { inventoryClient } from '../scripts/migration/sql-client.mjs';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
-import { assertOwned, cleanupLocal, localUrl } from '../scripts/migration/local.mjs';
+import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection } from '../scripts/migration/local.mjs';
+import { main, runAction, compareMigration } from '../scripts/migration/run.mjs';
+import { expectedMigrationHistory } from '../scripts/check-migration-history.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 
@@ -71,6 +73,17 @@ test('private workspace, key and lock reject public permissions, symlinks and re
     });
     await assert.rejects(withRunLock(workspace, () => { throw new Error('fixture-operation-failure'); }), /fixture-operation-failure/);
     assert.equal(await withRunLock(workspace, () => 'reacquired'), 'reacquired');
+  });
+});
+
+test('CLI acquires the run lock before opening even a missing or unreadable manifest', async () => {
+  await withDirectory(async directory => {
+    const keyPath = join(directory, 'key');
+    await createKey(keyPath);
+    await withRunLock(directory, async () => {
+      await assert.rejects(main(['status', '--key-file', keyPath, '--manifest', join(directory, 'missing.json.enc')]),
+        codeIs('RUN_LOCKED_INSPECT_BEFORE_RETRY'));
+    });
   });
 });
 
@@ -195,14 +208,16 @@ test('migration history distinguishes prefix, target and every unknown divergenc
 const ownerLabel = 'io.momo.migration.run';
 function ownedFixture() {
   const manifest = { runId: '11111111-2222-4333-8444-555555555555', postgres: { id: 'sha256:' + 'b'.repeat(64) },
-    local: { container: 'a'.repeat(64), network: 'c'.repeat(64), port: 60432 } };
+    local: { container: 'a'.repeat(64), network: 'c'.repeat(64) } };
   const container = { Id: manifest.local.container, Image: manifest.postgres.id,
     Config: { Labels: { [ownerLabel]: manifest.runId } }, State: { Running: true },
-    HostConfig: { Tmpfs: { '/var/lib/postgresql': 'rw,nosuid,size=1073741824' } },
+    HostConfig: { Tmpfs: { '/var/lib/postgresql': 'rw,nosuid,size=1073741824' }, PortBindings: {} },
     Mounts: [{ Type: 'tmpfs', Destination: '/var/lib/postgresql' }],
-    NetworkSettings: { Ports: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: String(manifest.local.port) }] },
+    NetworkSettings: { Ports: { '5432/tcp': null },
       Networks: { fixture: { NetworkID: manifest.local.network } } } };
-  const network = { Id: manifest.local.network, Internal: true, Labels: { [ownerLabel]: manifest.runId }, Containers: {} };
+  const network = { Id: manifest.local.network, Internal: true, EnableIPv6: false,
+    Options: { 'com.docker.network.bridge.gateway_mode_ipv4': 'isolated' },
+    Labels: { [ownerLabel]: manifest.runId }, Containers: {} };
   return { manifest, container, network };
 }
 
@@ -230,18 +245,19 @@ async function withFakeDocker(fixture, run) {
 
 test('owned-container guards reject wrong identities, persistence and network targets before removal', async t => {
   const valid = ownedFixture();
-  assert.equal(localUrl(valid.manifest, 'momo_rehearsal_baseline'), 'postgresql://postgres@127.0.0.1:60432/momo_rehearsal_baseline');
+  assert.throws(() => localUrl(valid.manifest, 'momo_rehearsal_baseline'), codeIs('LOCAL_CONNECTION_REQUIRED'));
   assert.throws(() => localUrl(valid.manifest, 'postgres'), codeIs('OWNED_DATABASE_REQUIRED'));
-  assert.throws(() => localUrl({ local: { port: 65536 } }, 'momo_rehearsal_baseline'), codeIs('INVALID_LOCAL_PORT'));
+  assert.throws(() => localUrl({ local: { port: 60432 } }, 'momo_rehearsal_baseline'), codeIs('LOCAL_CONNECTION_REQUIRED'));
   await withFakeDocker(valid, () => assertOwned(valid.manifest));
   for (const [name, change] of [
     ['wrong owner', fixture => { fixture.container.Config.Labels[ownerLabel] = 'another-run'; }],
     ['wrong image', fixture => { fixture.container.Image = 'sha256:' + 'd'.repeat(64); }],
     ['named volume', fixture => { fixture.container.Mounts.push({ Type: 'volume', Name: 'preserved-data' }); }],
     ['bind mount', fixture => { fixture.container.Mounts.push({ Type: 'bind', Source: '/fixture/preserved-data' }); }],
-    ['public port', fixture => { fixture.container.NetworkSettings.Ports['5432/tcp'][0].HostIp = '0.0.0.0'; }],
-    ['wrong port', fixture => { fixture.container.NetworkSettings.Ports['5432/tcp'][0].HostPort = '5433'; }],
+    ['public port', fixture => { fixture.container.NetworkSettings.Ports['5432/tcp'] = [{ HostIp: '0.0.0.0', HostPort: '5432' }]; }],
+    ['loopback publish', fixture => { fixture.container.HostConfig.PortBindings['5432/tcp'] = [{ HostIp: '127.0.0.1', HostPort: '5433' }]; }],
     ['external network', fixture => { fixture.network.Internal = false; }],
+    ['host gateway access', fixture => { delete fixture.network.Options['com.docker.network.bridge.gateway_mode_ipv4']; }],
     ['second network', fixture => { fixture.container.NetworkSettings.Networks.other = { NetworkID: 'd'.repeat(64) }; }],
   ]) {
     await t.test(name, async () => {
@@ -249,6 +265,7 @@ test('owned-container guards reject wrong identities, persistence and network ta
       change(fixture);
       await withFakeDocker(fixture, async calls => {
         await assert.rejects(assertOwned(fixture.manifest));
+        await assert.rejects(withLocalConnection(fixture.manifest, () => assert.fail('unowned relay opened')));
         assert.ok((await calls()).every(args => !args.includes('rm')));
       });
     });
@@ -265,6 +282,251 @@ test('owned-container guards reject wrong identities, persistence and network ta
       });
     }
   });
+  await t.test('missing run, image, container and network identities never authorize cleanup', async () => {
+    for (const change of [
+      fixture => { delete fixture.manifest.runId; delete fixture.container.Config.Labels[ownerLabel]; delete fixture.network.Labels[ownerLabel]; },
+      fixture => { delete fixture.manifest.postgres.id; delete fixture.container.Image; },
+      fixture => { fixture.manifest.runId = '-'.repeat(36); fixture.container.Config.Labels[ownerLabel] = fixture.manifest.runId; },
+      fixture => { fixture.manifest.local.container = ''; },
+      fixture => { fixture.manifest.local.container = 'a'.repeat(12); },
+      fixture => { delete fixture.manifest.local.network; },
+      fixture => { fixture.manifest.local.network = ''; },
+    ]) {
+      const fixture = ownedFixture();
+      change(fixture);
+      await withFakeDocker(fixture, async calls => {
+        await assert.rejects(cleanupLocal(fixture.manifest, async () => {}));
+        assert.deepEqual(await calls(), []);
+      });
+    }
+  });
+});
+
+async function withRunnerCommands(run) {
+  await withDirectory(async directory => {
+    const headPath = join(directory, 'candidate-head');
+    const logPath = join(directory, 'migrator-calls.jsonl');
+    const sha = 'e'.repeat(40);
+    const executable = await command('which', ['pnpm']);
+    await writeFile(headPath, sha, { mode: 0o600 });
+    await writeFile(join(directory, 'git'), `#!${process.execPath}\n
+      const fs = require('node:fs');
+      const args = process.argv.slice(2);
+      if (args[0] === 'status' && args[1] === '--porcelain') process.exit(0);
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') process.stdout.write(fs.readFileSync(${JSON.stringify(headPath)}));
+      else process.exit(2);
+    `, { mode: 0o700 });
+    await writeFile(join(directory, 'pnpm'), `#!${process.execPath}\n
+      const fs = require('node:fs');
+      const args = process.argv.slice(2);
+      if (args.length !== 1 || args[0] !== 'db:migrate:ci') process.exit(2);
+      fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + '\\n');
+      const result = require('node:child_process').spawnSync(${JSON.stringify(executable)}, args, { stdio: 'inherit' });
+      process.exit(result.status ?? 1);
+    `, { mode: 0o700 });
+    const previous = process.env.PATH;
+    process.env.PATH = directory + delimiter + previous;
+    try {
+      await run({
+        candidate: { sha, migrationDigest: digest(expectedMigrationHistory(join(process.cwd(), 'drizzle'))),
+          lockDigest: await fileDigest(join(process.cwd(), 'pnpm-lock.yaml')) },
+        changeCandidate: () => writeFile(headPath, 'f'.repeat(40), { mode: 0o600 }),
+        migratorCalls: async () => (await readFile(logPath, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)),
+      });
+    } finally { process.env.PATH = previous; }
+  });
+}
+
+test('restore persists its started state and refuses a changed candidate before creating local resources', async () => {
+  await withDirectory(async directory => withRunnerCommands(async commands => {
+    const key = randomBytes(32);
+    const source = { fixture: 'authenticated-source-report' };
+    const manifest = { ...ownedFixture().manifest, candidate: commands.candidate, local: null,
+      state: 'snapshotted', snapshot: { auditDigest: digest(source) }, checks: {} };
+    await writeJson(join(directory, 'source.json.enc'), source, key);
+    const saves = [];
+    await withFakeDocker(ownedFixture(), async calls => {
+      await assert.rejects(runAction('restore', manifest, directory, key, async () => {
+        saves.push(structuredClone(manifest));
+        if (manifest.local?.starting) await commands.changeCandidate();
+      }), codeIs('CANDIDATE_CHANGED'));
+      assert.equal(saves[0].state, 'restore-started');
+      assert.equal(saves[0].local, null);
+      assert.equal(saves[1].local.starting, true);
+      assert.deepEqual(await calls(), []);
+      assert.equal(manifest.checks.restore, undefined);
+    });
+  }));
+});
+
+test('a valid encrypted report from another snapshot cannot authorize a restore', async () => {
+  await withDirectory(async directory => withRunnerCommands(async commands => {
+    const key = randomBytes(32);
+    const manifest = { ...ownedFixture().manifest, candidate: commands.candidate, local: null,
+      state: 'snapshotted', snapshot: { auditDigest: digest({ fixture: 'original' }) }, checks: {} };
+    await writeJson(join(directory, 'source.json.enc'), { fixture: 'different-snapshot' }, key);
+    await withFakeDocker(ownedFixture(), async calls => {
+      await assert.rejects(runAction('restore', manifest, directory, key, () => assert.fail('state saved before report validation')),
+        codeIs('REPORT_DIGEST_MISMATCH'));
+      assert.deepEqual(await calls(), []);
+    });
+  }));
+});
+
+test('owned database retries inspect committed work, verify schemas and prove a second migrator is a no-op', async t => {
+  await withDirectory(async directory => withRunnerCommands(async commands => {
+    const keyPath = join(directory, 'key');
+    await createKey(keyPath);
+    const key = await loadKey(keyPath);
+    const manifestPath = join(directory, 'manifest.json.enc');
+    const manifest = { formatVersion: 1, runId: randomUUID(), candidate: commands.candidate,
+      postgres: { id: await command('docker', ['inspect', '--format', '{{.Image}}', process.env.MOMO_DB_TEST_CONTAINER]) },
+      state: 'restore-started', local: null, checks: {}, incomplete: [], durationsMs: {} };
+    const save = () => writeJson(manifestPath, manifest, key);
+    const capture = async database => {
+      const sql = connect(localUrl(manifest, database));
+      try {
+        return await sql.begin('isolation level repeatable read read only', async transaction => ({
+          connection: await inspectConnection(transaction, process.cwd()),
+          schema: await inspectSchema(transaction), rows: await fingerprint(transaction),
+        }));
+      } finally { await sql.end(); }
+    };
+    const apply = async action => {
+      await main([action, '--key-file', keyPath, '--manifest', manifestPath]);
+      Object.assign(manifest, await readJson(manifestPath, key));
+    };
+    t.mock.method(console, 'log', () => {});
+    try {
+      await startLocal(manifest, save);
+      await withLocalConnection(manifest, async () => {
+        assert.equal(await databaseState(manifest, 'momo_rehearsal_baseline'), 'empty');
+        assert.equal(await databaseState(manifest, 'momo_rehearsal_migration'), 'missing');
+        const baseline = connect(localUrl(manifest, 'momo_rehearsal_baseline'), { readOnly: false });
+        try {
+          await baseline.unsafe(`CREATE SCHEMA drizzle;
+            CREATE TABLE drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint);
+            CREATE TABLE public.rehearsal_values (id bigint PRIMARY KEY, value text NOT NULL);
+            CREATE INDEX rehearsal_values_value_idx ON public.rehearsal_values(value);
+            INSERT INTO public.rehearsal_values VALUES (9007199254740993, 'preserved-fixture');`);
+          for (const entry of expectedMigrationHistory(join(process.cwd(), 'drizzle'))) {
+            await baseline`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${entry.hash}, ${entry.created_at})`;
+          }
+        } finally { await baseline.end(); }
+        const source = await capture('momo_rehearsal_baseline');
+        manifest.snapshot = { mode: 'fixture', auditDigest: digest(source), archiveDigest: '0'.repeat(64) };
+        await writeJson(join(directory, 'source.json.enc'), source, key);
+        await save();
+
+        await t.test('an interrupted committed restore is verified without an archive replay', async () => {
+          await apply('restore');
+          assert.equal(manifest.state, 'restored');
+          assert.equal(manifest.checks.restore, true);
+          assert.equal(await databaseState(manifest, 'momo_rehearsal_baseline'), 'populated');
+          // There is deliberately no source.dump.enc: a blind restore fails.
+          await assert.rejects(readFile(join(directory, 'source.dump.enc')), { code: 'ENOENT' });
+        });
+        await t.test('a fresh rehearsal invokes the normal migrator twice and compares both results', async () => {
+          await apply('rehearse');
+          assert.deepEqual(await commands.migratorCalls(), [['db:migrate:ci'], ['db:migrate:ci']]);
+          assert.equal(manifest.state, 'verified');
+          assert.equal(manifest.checks.migratorFirstRun, true);
+          assert.equal(manifest.checks.migratorNoop, true);
+          assert.equal(manifest.checks.migrationSchema, true);
+        });
+        await t.test('an existing migration target is verified without replay or fabricated command evidence', async () => {
+          manifest.state = 'migration-started';
+          delete manifest.checks.migratorFirstRun;
+          delete manifest.checks.migratorNoop;
+          delete manifest.firstMigrationDigest;
+          delete manifest.migratedDigest;
+          await save();
+          await apply('rehearse');
+          assert.equal((await commands.migratorCalls()).length, 2);
+          assert.equal(manifest.checks.migratorNoop, false);
+          assert.ok(manifest.incomplete.includes('interrupted-migrator-execution-requires-fresh-run'));
+        });
+        await t.test('verification rejects a dropped index with unchanged rows and ledger', async () => {
+          const sql = connect(localUrl(manifest, 'momo_rehearsal_migration'), { readOnly: false });
+          try { await sql`DROP INDEX public.rehearsal_values_value_idx`; }
+          finally { await sql.end(); }
+          await assert.rejects(apply('verify'), codeIs('RESTORED_SCHEMA_DIFFERS'));
+          assert.equal((await commands.migratorCalls()).length, 2);
+        });
+        await t.test('pending tails fail closed before clone creation or migration', async () => {
+          const before = await capture('momo_rehearsal_baseline');
+          const pending = structuredClone(before);
+          pending.connection.pending = [{ hash: 'f'.repeat(64), created_at: '999' }];
+          assert.throws(() => compareMigration(pending, before), codeIs('PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR'));
+          const originalDigest = manifest.baselineDigest;
+          manifest.baselineDigest = digest(pending);
+          manifest.state = 'restored';
+          await writeJson(join(directory, 'baseline.json.enc'), pending, key);
+          await save();
+          await assert.rejects(apply('rehearse'), codeIs('PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR'));
+          assert.equal((await commands.migratorCalls()).length, 2);
+          manifest.baselineDigest = originalDigest;
+          await writeJson(join(directory, 'baseline.json.enc'), before, key);
+        });
+        await t.test('an interrupted committed recovery is verified without a second restore', async () => {
+          await createDatabase(manifest, 'momo_rehearsal_recovery', 'momo_rehearsal_baseline');
+          manifest.state = 'recovery-started';
+          await save();
+          await apply('recover-rehearsal');
+          assert.equal(manifest.state, 'recovery-verified');
+          assert.equal(manifest.checks.databaseRecovery, true);
+        });
+        for (const mode of ['error', 'abort']) await t.test(`a parent ${mode} closes the loopback relay and its active PostgreSQL connection`, async () => {
+          const transient = structuredClone(manifest);
+          const controller = new AbortController();
+          let port, closed;
+          await assert.rejects(withLocalConnection(transient, async () => {
+            port = Number(new URL(localUrl(transient, 'momo_rehearsal_baseline')).port);
+            const socket = createConnection({ host: '127.0.0.1', port });
+            socket.on('error', () => {});
+            closed = new Promise(resolve => socket.once('close', resolve));
+            await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
+            const parameters = Buffer.from('user\0postgres\0database\0momo_rehearsal_baseline\0\0');
+            const startup = Buffer.alloc(8 + parameters.length);
+            startup.writeInt32BE(startup.length, 0);
+            startup.writeInt32BE(196608, 4);
+            parameters.copy(startup, 8);
+            const response = new Promise((resolve, reject) => { socket.once('data', resolve); socket.once('error', reject); });
+            socket.write(startup);
+            await response;
+            if (mode === 'error') throw new Error('fixture-parent-interrupted');
+            controller.abort();
+            await closed;
+          }, { signal: controller.signal }), mode === 'error' ? /fixture-parent-interrupted/ : codeIs('LOCAL_DATABASE_RELAY_ABORTED'));
+          await closed;
+          assert.throws(() => localUrl(transient, 'momo_rehearsal_baseline'), codeIs('LOCAL_CONNECTION_REQUIRED'));
+          await new Promise((resolve, reject) => {
+            const socket = createConnection({ host: '127.0.0.1', port });
+            socket.once('connect', () => { socket.destroy(); reject(new Error('relay listener survived')); });
+            socket.once('error', error => error.code === 'ECONNREFUSED' ? resolve() : reject(error));
+          });
+          const count = await command('docker', ['exec', manifest.local.container, 'psql', '-U', 'postgres',
+            '-d', 'momo_rehearsal_baseline', '-Atc',
+            "SELECT count(*) FROM pg_stat_activity WHERE datname='momo_rehearsal_baseline' AND backend_type='client backend' AND pid<>pg_backend_pid()"]);
+          assert.equal(count, '0');
+          assert.equal(manifest.local.port, undefined, 'a relay port must never be saved in the manifest');
+        });
+        await t.test('candidate drift during verification cannot write successful evidence', async () => {
+          manifest.state = 'recovery-started';
+          delete manifest.checks.databaseRecovery;
+          await rm(join(directory, 'recovered.json.enc'));
+          await assert.rejects(runAction('recover-rehearsal', manifest, directory, key, async () => {
+            await save();
+            await commands.changeCandidate();
+          }), codeIs('CANDIDATE_CHANGED'));
+          assert.equal(manifest.checks.databaseRecovery, undefined);
+          await assert.rejects(readFile(join(directory, 'recovered.json.enc')), { code: 'ENOENT' });
+        });
+      });
+    } finally {
+      await cleanupLocal(manifest, save);
+    }
+  }));
 });
 
 test('stream fingerprint preserves precise saved values, duplicates and empty tables across restore', async t => {
