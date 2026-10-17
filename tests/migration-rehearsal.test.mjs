@@ -529,6 +529,23 @@ test('owned database retries inspect committed work, verify schemas and prove a 
   }));
 });
 
+test('fingerprint sorts bounded row hashes even when complete values exceed the temporary-file budget', async () => {
+  await withDatabase(async db => {
+    await db.unsafe(`CREATE TABLE large_values (id integer, payload text);
+      INSERT INTO large_values SELECT value, repeat('compressible-fixture-', 100000)
+      FROM generate_series(1, 12) value;`);
+    const inspect = () => db.begin('isolation level repeatable read read only', async sql => {
+      await sql.unsafe("SET LOCAL work_mem = '64kB'; SET LOCAL temp_file_limit = '1MB'");
+      return fingerprint(sql);
+    });
+    const before = await inspect();
+    assert.equal(before.tables.find(table => table.name === 'large_values').rows, '12');
+    await db.unsafe("UPDATE large_values SET payload = payload || 'changed' WHERE id=12");
+    const after = await inspect();
+    assert.throws(() => compareFingerprints(before, after), codeIs('SAVED_ROWS_DIFFER'));
+  });
+});
+
 test('stream fingerprint preserves precise saved values, duplicates and empty tables across restore', async t => {
   await withDatabase(async (db, name) => {
     await db.unsafe(`

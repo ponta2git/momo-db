@@ -84,10 +84,13 @@ export async function fingerprint(sql, { sequences = true } = {}) {
   for (const table of tables) {
     const hash = createHash('sha256');
     let count = 0n;
-    // PostgreSQL renders numeric/bytea/JSON values without a JS number conversion.
-    // C ordering makes the row stream independent of local collation and PK type.
-    for await (const rows of sql`SELECT to_jsonb(record)::text AS value
-      FROM ${identifier(sql, table.schema)}.${identifier(sql, table.name)} record ORDER BY to_jsonb(record)::text COLLATE "C"`.cursor(256)) {
+    // Hash the complete PostgreSQL representation before sorting. Large TOAST
+    // values otherwise expand into a multi-GB sort and cross the network in
+    // plaintext just to be hashed here. Fixed-width row hashes preserve the
+    // complete multiset (including duplicates) with bounded sort/transfer size.
+    // Values never pass through JavaScript's lossy numeric conversion.
+    for await (const rows of sql`SELECT encode(sha256(convert_to(to_jsonb(record)::text, 'UTF8')), 'hex') COLLATE "C" AS value
+      FROM ${identifier(sql, table.schema)}.${identifier(sql, table.name)} record ORDER BY value`.cursor(256)) {
       for (const row of rows) {
         const bytes = Buffer.from(row.value);
         hash.update(String(bytes.length)).update(':').update(bytes).update('\n');
@@ -107,10 +110,12 @@ export async function fingerprint(sql, { sequences = true } = {}) {
       sequenceValues.push({ ...sequence, ...state });
     }
   }
-  return { tables: values, sequences: sequenceValues, digest: digest({ tables: values, sequences: sequenceValues }) };
+  return { algorithm: 'sha256-row-multiset-v2', tables: values, sequences: sequenceValues,
+    digest: digest({ algorithm: 'sha256-row-multiset-v2', tables: values, sequences: sequenceValues }) };
 }
 
 export function compareFingerprints(before, after, { sequences = true } = {}) {
+  requireCondition(before.algorithm === 'sha256-row-multiset-v2' && before.algorithm === after.algorithm, 'FINGERPRINT_ALGORITHM_DIFFERS');
   requireCondition(digest(before.tables) === digest(after.tables), 'SAVED_ROWS_DIFFER');
   if (sequences) requireCondition(digest(before.sequences) === digest(after.sequences), 'SEQUENCES_DIFFER');
 }
