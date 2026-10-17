@@ -125,8 +125,8 @@ export async function startLocal(manifest, save, { beforeMutation = noMutationCh
   await beforeMutation();
   const container = await command('docker', ['run', '--detach', '--name', networkName,
     '--label', `${ownerLabel}=${manifest.runId}`, '--network', network,
-    '--memory', '2g', '--memory-swap', '2g',
-    '--tmpfs', '/var/lib/postgresql:rw,nosuid,size=1073741824',
+    '--memory', '3g', '--memory-swap', '3g',
+    '--tmpfs', '/var/lib/postgresql:rw,nosuid,size=2147483648',
     '--env', 'POSTGRES_HOST_AUTH_METHOD=trust', '--env', 'POSTGRES_DB=momo_rehearsal_baseline',
     '--env', 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C.UTF-8',
     manifest.postgres.id], { signal });
@@ -136,7 +136,9 @@ export async function startLocal(manifest, save, { beforeMutation = noMutationCh
   for (let attempt = 0; attempt < 60; attempt++) {
     requireCondition(!signal?.aborted, 'REHEARSAL_INTERRUPTED');
     try {
-      await command('docker', ['exec', container, 'pg_isready', '--username=postgres', '--dbname=momo_rehearsal_baseline']);
+      // initdb's temporary server accepts Unix sockets before the final TCP
+      // server is ready. The relay must never race that shutdown/restart.
+      await command('docker', ['exec', container, 'pg_isready', '--host=127.0.0.1', '--username=postgres', '--dbname=momo_rehearsal_baseline']);
     } catch { await delay(1000); continue; }
     await assertOwned(manifest);
     delete manifest.local.starting;
