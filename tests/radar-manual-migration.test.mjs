@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
-import { docker, expectedJobSchedulerRows, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { docker, expectedJobSchedulerRows, expectedPublicIdentifierRows, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 async function isolated(run) {
   const name = 'momo_db_test_manual_' + randomUUID().replaceAll('-', '').slice(0,12);
@@ -61,7 +61,7 @@ test('manual radar tail applies fresh and preserves restored rows while backfill
       assert.deepEqual(await snapshotDatabase(copy),before);
       await migrate(drizzle(copy),{migrationsFolder:'./drizzle'});
       const after = await snapshotDatabase(copy);
-      for (const [table,rows] of Object.entries(expectedJobSchedulerRows(before.rows))) {
+      for (const [table,rows] of Object.entries(expectedPublicIdentifierRows(expectedJobSchedulerRows(before.rows)))) {
         const expected = table === 'series_radar_candidates'
           ? rows.map(row => ({...row,origin_kind:'generated',manual_input:null,source_basis_id:null,source_candidate_id:null,saved_by:null,saved_by_display_name:null}))
           : table === 'series_radar_operations' ? rows.map(row => ({...row,requested_by_display_name:null})) : rows;

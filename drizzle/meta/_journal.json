@@ -512,6 +512,41 @@
       "when": 1792140367260,
       "tag": "0072_repository_query_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1792280151246,
+      "tag": "0073_add-public-identifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792280152177,
+      "tag": "0074_backfill-public-identifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792280153184,
+      "tag": "0075_constrain-public-identifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792280154107,
+      "tag": "0076_generate-public-identifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792280154978,
+      "tag": "0077_align-public-identifier-sequences",
+      "breakpoints": true
     }
   ]
 }

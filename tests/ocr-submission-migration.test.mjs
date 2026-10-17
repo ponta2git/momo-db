@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, envelope, resetFixtures } from './notification-fixtures.mjs';
-import { docker, expectedJobSchedulerRows, expectedLoginAccountRoles, retiredQueueTables, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { docker, expectedJobSchedulerRows, expectedLoginAccountRoles, expectedPublicIdentifierRows, retiredQueueTables, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 test('0056 preserves every existing row and migration hash after backup/restore, including OCR v1 history', async () => {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -45,9 +45,9 @@ test('0056 preserves every existing row and migration hash after backup/restore,
     assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
     assert.deepEqual(after.rows, {
-      ...expectedJobSchedulerRows(before.rows),
+      ...expectedPublicIdentifierRows(expectedJobSchedulerRows(before.rows)),
       momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
-    }, 'Existing rows must change only by the documented role mapping and scheduler schema transition');
+    }, 'Existing rows must change only by the documented role, scheduler and public identifier transitions');
     assert.equal((await copy`SELECT count(*)::int AS n FROM ocr_submissions`)[0].n, 0);
     assert.equal((await copy`SELECT count(*)::int AS n FROM ocr_submission_members`)[0].n, 0);
   } finally {
