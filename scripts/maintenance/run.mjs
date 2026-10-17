@@ -23,6 +23,17 @@ export function executionContext(environment = process.env) {
   } };
 }
 
+export async function guardMaintenanceExecution(store, receipt, context, operation, request) {
+  validateReceipt(receipt);
+  check(receipt.operation === operation, 'UNEXPECTED_OPERATION');
+  // Artifact lookups can take several network round trips. Read the mutable
+  // stop state only after they settle, immediately before returning permission.
+  await verifyProducer(receipt, request);
+  const current = await store.read();
+  const result = assertMaintenanceMutation(current.record, receipt, context, operation);
+  return { controlHead: current.head, ...result };
+}
+
 export async function main(args, store = createStore(), request) {
   const [action, ...rest] = args;
   if (action === 'initialize') {
@@ -36,9 +47,9 @@ export async function main(args, store = createStore(), request) {
     const input = await read(rest[1]);
     // Never trust an execution tuple supplied by an operator or an older run.
     const receipt = validateReceipt({ ...input, execution: executionContext().execution });
+    await verifyProducer(receipt, request);
     const previous = await store.read();
     assertReceiptScope(previous.record, receipt, executionContext(), rest[0]);
-    await verifyProducer(receipt, request);
     await writeFile(rest[2], canonicalJson(receipt) + '\n', { mode: 0o600, flag: 'wx' });
     console.log(JSON.stringify({ receiptDigest: digest(receipt), execution: receipt.execution }));
     return;
@@ -48,6 +59,12 @@ export async function main(args, store = createStore(), request) {
     const approvals = await captureApprovalPolicies(request);
     await writeFile(rest[0], canonicalJson(approvals) + '\n', { mode: 0o600, flag: 'wx' });
     console.log(JSON.stringify({ approvalPolicyDigest: digest(approvals) }));
+    return;
+  }
+  if (action === 'maintenance-guard') {
+    check(rest.length === 2, 'OPERATION_AND_RECEIPT_FILE_REQUIRED');
+    const receipt = await read(rest[1]);
+    console.log(JSON.stringify(await guardMaintenanceExecution(store, receipt, executionContext(), rest[0], request)));
     return;
   }
   const previous = await store.read();
@@ -63,12 +80,6 @@ export async function main(args, store = createStore(), request) {
   } else if (action === 'normal-status') {
     check(rest.length === 0, 'INVALID_ARGUMENTS');
     console.log(`allowed=${previous.record.cutover === null}`);
-  } else if (action === 'maintenance-guard') {
-    check(rest.length === 2, 'OPERATION_AND_RECEIPT_FILE_REQUIRED');
-    const receipt = await read(rest[1]);
-    const result = assertMaintenanceMutation(previous.record, receipt, executionContext(), rest[0]);
-    await verifyProducer(receipt, request);
-    console.log(JSON.stringify({ controlHead: previous.head, ...result }));
   } else if (action === 'verify-freeze') {
     check(rest.length === 2, 'APPROVAL_INPUT_AND_FREEZE_OUTPUT_REQUIRED');
     const proof = await verifyDeploymentFreeze(previous.record, await read(rest[0]), request);

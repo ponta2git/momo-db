@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { digest } from '../scripts/maintenance/control.mjs';
+import { digest, initialControl, transition } from '../scripts/maintenance/control.mjs';
 import { approvalPolicy, verifyEnvironment, verifyProducer } from '../scripts/maintenance/github-evidence.mjs';
+import { guardMaintenanceExecution } from '../scripts/maintenance/run.mjs';
 
 const code = expected => error => error.code === expected;
 const evidence = name => digest({ fixture: name });
@@ -79,5 +80,40 @@ test('producer checks immutable artifact identity, original run attempt and succ
   ]) {
     const value = fixture(); change(value);
     await assert.rejects(verifyProducer(value.receipt, value.request), code('PRODUCER_ARTIFACT_CHANGED_OR_EXPIRED'));
+  }
+});
+
+test('invalidation or permit replacement during artifact inspection is seen by the final stop-state read', async () => {
+  for (const action of ['invalidate', 'permit']) {
+    const value = fixture();
+    value.receipt.evidence.previousStage = value.receipt.evidence.finalRehearsal;
+    let record = initialControl('fixture-operator');
+    const apply = (operation, payload) => {
+      record = transition(record, record.stateVersion, operation,
+        { cutoverId: value.receipt.cutoverId, stopEpoch: record.epoch, ...payload });
+    };
+    apply('begin', {});
+    apply('pin', { candidates: value.receipt.candidates });
+    for (const phase of ['DRAINING', 'FROZEN', 'VERIFIED']) {
+      apply('advance', { phase, evidenceDigest: value.receipt.evidence.finalRehearsal });
+    }
+    const permit = { operation: 'database', repository: value.receipt.execution.repository,
+      runId: '300', runAttempt: 1, receiptDigest: digest(value.receipt), deadline: new Date(Date.now() + 60000).toISOString() };
+    apply('permit', { permit });
+    const calls = [];
+    const request = async path => {
+      calls.push(path.includes('/artifacts/') ? 'artifact' : 'producer');
+      const result = await value.request(path);
+      if (path.includes('/artifacts/')) {
+        if (action === 'invalidate') apply('invalidate', { reason: 'writer-reopened' });
+        else apply('permit', { permit: { ...permit, receiptDigest: evidence('replacement') } });
+      }
+      return result;
+    };
+    const store = { read: async () => { calls.push('control'); return { head: 'd'.repeat(40), record }; } };
+    await assert.rejects(guardMaintenanceExecution(store, value.receipt,
+      { eventName: 'workflow_dispatch', execution: value.receipt.execution }, 'database', request),
+    code(action === 'invalidate' ? 'STOP_IDENTITY_MISMATCH' : 'EXACT_EXECUTION_NOT_PERMITTED'));
+    assert.deepEqual(calls, ['producer', 'artifact', 'control']);
   }
 });
