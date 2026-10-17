@@ -25,6 +25,8 @@ export async function resolvePostgresImage(image) {
   requireCondition(/^pg_dump \(PostgreSQL\) 18\./.test(version), 'POSTGRES_18_CLIENT_REQUIRED');
   await command('docker', ['run', '--rm', '--network', 'none', id, 'sh', '-c', 'command -v nc >/dev/null'],
     { failureCode: 'POSTGRES_IMAGE_RELAY_REQUIRED' });
+  await command('docker', ['run', '--rm', '--network', 'none', id, 'sh', '-c', 'test -s /etc/ssl/certs/ca-certificates.crt'],
+    { failureCode: 'POSTGRES_IMAGE_SYSTEM_CA_REQUIRED' });
   return { id, version };
 }
 

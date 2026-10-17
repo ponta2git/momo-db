@@ -77,6 +77,7 @@ export async function inspectSchema(sql) {
   attach(await sql`
     SELECT n.nspname AS schema, c.relname AS table, con.conname AS name, con.contype::text AS kind,
       pg_catalog.pg_get_constraintdef(con.oid, false) AS definition,
+      pg_catalog.pg_get_constraintdef(con.oid, true) AS "comparisonDefinition",
       con.condeferrable AS deferrable, con.condeferred AS "initiallyDeferred",
       con.convalidated AS validated,
       coalesce((to_jsonb(con)->>'conenforced')::boolean, true) AS enforced,
@@ -174,7 +175,9 @@ export async function inspectSchema(sql) {
       t.typnotnull AS "notNull", t.typdefault AS "default",
       ARRAY(SELECT e.enumlabel FROM pg_catalog.pg_enum e WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) AS labels,
       ARRAY(SELECT pg_catalog.pg_get_constraintdef(con.oid, false) FROM pg_catalog.pg_constraint con
-        WHERE con.contypid = t.oid ORDER BY con.conname COLLATE "C") AS checks
+        WHERE con.contypid = t.oid ORDER BY con.conname COLLATE "C") AS checks,
+      ARRAY(SELECT pg_catalog.pg_get_constraintdef(con.oid, true) FROM pg_catalog.pg_constraint con
+        WHERE con.contypid = t.oid ORDER BY con.conname COLLATE "C") AS "comparisonChecks"
     FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
     WHERE ${userNamespace(sql)} AND t.typtype IN ('d', 'e')
     ORDER BY n.nspname COLLATE "C", t.typname COLLATE "C"
