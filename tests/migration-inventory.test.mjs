@@ -4,6 +4,7 @@ import test from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
+import { schemaStructure } from '../scripts/migration/run.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 
@@ -157,10 +158,14 @@ test('identifier audit fails closed when row-level security hides fixture rows',
 });
 
 test('inventory covers the current migration history without approving implicit ID conversions', async () => {
-  await withDatabase(async db => {
+  await withDatabase(async (db, sourceName) => {
     await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await db.unsafe(`CREATE TABLE public.comparison_fixture (a boolean, b boolean, c boolean,
+      CONSTRAINT comparison_logic CHECK (a AND (b OR c)))`);
+    let source;
     await db.begin('isolation level repeatable read read only', async sql => {
       const schema = await inspectSchema(sql);
+      source = schema;
       const audit = await inspectIdentifierValues(sql, schema);
       assert.ok(schema.tables.some(table => table.schema === 'drizzle' && table.name === '__drizzle_migrations'));
       assert.ok(schema.tables.some(table => table.name === 'discord_notifications'));
@@ -169,6 +174,18 @@ test('inventory covers the current migration history without approving implicit 
       assert.ok(audit.references.length > 0);
       assert.ok(audit.references.every(reference => reference.status === 'consistent'));
       assert.equal(audit.complete, false);
+    });
+    const backup = docker(['pg_dump', '-U', username, '--format=custom', sourceName]);
+    await withDatabase(async (copy, copyName) => {
+      docker(['pg_restore', '-U', username, '--exit-on-error', '-d', copyName], backup);
+      const restored = await inspectSchema(copy);
+      // pg_restore can flatten nested AND nodes in existing CHECK expressions.
+      // Keep both original definitions privately, and let PostgreSQL itself
+      // remove unnecessary parentheses for comparison, never a text regexp.
+      assert.deepEqual(schemaStructure(restored), schemaStructure(source));
+      await copy.unsafe(`ALTER TABLE public.comparison_fixture DROP CONSTRAINT comparison_logic;
+        ALTER TABLE public.comparison_fixture ADD CONSTRAINT comparison_logic CHECK ((a AND b) OR c)`);
+      assert.notDeepEqual(schemaStructure(await inspectSchema(copy)), schemaStructure(source));
     });
   });
 });
