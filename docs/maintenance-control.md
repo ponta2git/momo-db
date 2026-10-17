@@ -28,7 +28,7 @@
 
 `capture-approvals <file>` は変更前の承認条件を保存する。`verify-freeze <file> <output>` は exact branch、承認条件の維持、bypass、control ref 保護と更新主体を読取り検査する。既承認 job・外部 writer・旧 workflow の拒否実証はこの出力の `incomplete` に残り、別の確認なしに FROZEN の証拠へ使わない。
 
-receipt の `evidence` は source identity、baseline / target ledger、pending tail、baseline / target schema、baseline / target 全保存値、snapshot、最終リハーサル、前段階を結ぶ。DB 側の digest はリハーサルの固定 comparator が生成する値をそのまま渡す。receipt 自体の digest は key を並べた canonical JSON の SHA-256 とする。ローカルの秘密 manifest や dump を GitHub に渡さず、operator がその元証拠との対応を確認する。digest 単独が証拠の真偽を証明するものではない。
+receipt の `evidence` は source identity、baseline / target ledger、pending tail、baseline / target schema、baseline / target 全保存値、snapshot、最終リハーサル、前段階を結ぶ。DB 側の digest はリハーサルの固定 comparator が生成する値をそのまま渡す。schema digest には locale provider / rules / version と構造比較を含め、data digest には全保存行と sequence を含める。receipt 自体の digest は key を並べた canonical JSON の SHA-256 とする。ローカルの秘密 manifest や dump を GitHub に渡さず、operator がその元証拠との対応を確認する。digest 単独が証拠の真偽を証明するものではない。
 
 Release 発行は RESUMED の証拠を使う専用継続入口で行う。`close` は公開結果の digest を完了記録へ保存してから通常 deploy を開く。復旧経路は `close-recovery` で旧構成の安定確認を保存する。過去の各状態は Git 履歴に残る。
 

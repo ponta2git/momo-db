@@ -11,8 +11,10 @@ Discord Bot プロジェクト群（summit / momo-result）が共有する Postg
 | ジョブ | 条件 | 内容 |
 |---|---|---|
 | `Build & Check` | PR と master push | build、migration 整合性、fresh DB の通知契約、既存 DB の backup / restore・移行検証 |
-| `Approve production migration` | master push で `drizzle/` に変更があり、検証が成功した場合 | protected environment `production-db` で対象 commit の承認を待つ |
-| `Migrate Neon` | master push の本番 migration 承認成功後 | 接続 preflight + `drizzle-kit migrate`（Neon 本番 DB に適用） |
+| `Check normal migration admission` | master push で `drizzle/` に変更があり、検証が成功した場合 | 永続停止状態が通常適用を許可するか確認 |
+| `Bind final rehearsal to this execution` | 移行用 dispatch | 成功済み候補と最終証拠を実行 run / attempt に結び付けて保存 |
+| `Approve production migration` | 通常適用許可、または移行 receipt 検証成功後 | protected environment `production-db` で対象 commit の承認を待つ |
+| `Migrate Neon` | 本番 migration 承認成功後 | 停止 guard + 接続 preflight + 正規 migrator + ledger 確認。移行 dispatch は全保存値・schema も検証 |
 
 `Build & Check` は workflow の PostgreSQL サービスと専用テスト DB を使い、本番 Environment や Secret を必要としない。PR では本番承認・適用ジョブを実行しない。
 
@@ -21,11 +23,13 @@ Discord Bot プロジェクト群（summit / momo-result）が共有する Postg
 | Environment | 設定するもの |
 | --- | --- |
 | `CI Actions` | `DIRECT_URL` Secret。Neon production の direct / unpooled 接続を登録する |
-| `production-db` | required reviewer と master だけを許可する deployment branch policy |
+| `production-db` | required reviewer と通常時に master だけを許可する deployment branch policy |
 
 本番用 `DIRECT_URL` が未設定だと `Migrate Neon` は失敗する。登録・ローテーションは[接続先更新手順](./docs/ops/neon-production-connection-rotation.md)に従う。Neon 側の project / branch / role を更新しても GitHub Secret は自動更新されない。
 
 workflow の `environment: production-db` だけでは承認待ちは保証されないため、Settings または GitHub API で protection rule の存在を確認する。reviewer の個人情報や環境設定の実値は repository に記録しない。
+
+永続停止記録の初期化と保護設定は[停止制御](docs/maintenance-control.md)を参照する。記録欠落時は通常適用も停止する。停止切替中は両 environment の許可 ref を固定 cutover branch に限定し、既存の承認条件を維持する。
 
 本番適用と consumer deploy の順序、緊急時の手動適用条件は [development.md 第 6 節](./docs/development.md#6-適用と-release-順序)に従う。
 
@@ -56,6 +60,7 @@ pnpm build
 | `pnpm db:check` | マイグレーションの整合性チェック |
 | `pnpm db:preflight:ci` | CI の migration 用 direct 接続を安全に検証 |
 | `pnpm migration:rehearsal <command>` | 暗号化した本番コピーの棚卸し・隔離復元・移行比較（[手順と証拠の範囲](docs/migration-rehearsal.md)） |
+| `pnpm maintenance:control <command>` | 永続停止状態・固定候補・実行 receipt の確認と operator による更新（[導入と運用](docs/maintenance-control.md)） |
 
 ## ローカル開発（postgres コンテナ使用）
 
