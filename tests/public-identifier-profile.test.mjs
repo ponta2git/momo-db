@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test, { before } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -13,6 +13,7 @@ import { createPublicIdentifierProfile, inspectPublicIdentifierTransition, compa
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 
+const repository = resolve('.');
 const codeIs = code => error => error.code === code && error.message === code;
 let history;
 let profile;
