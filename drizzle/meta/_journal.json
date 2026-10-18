@@ -659,6 +659,20 @@
       "when": 1792287900052,
       "tag": "0093_canonical-publication-guards",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1792290973529,
+      "tag": "0094_reseed-before-worker-slot-retirement",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1792291022657,
+      "tag": "0095_retire-worker-execution-slots",
+      "breakpoints": true
     }
   ]
 }

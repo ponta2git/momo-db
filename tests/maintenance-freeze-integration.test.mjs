@@ -4,6 +4,7 @@ import test from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient } from './notification-fixtures.mjs';
+import { migrateThrough } from './migration-prefix.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 import { connect, fingerprint } from '../scripts/migration/database.mjs';
 import { inspectConvergence, isConverged, readConvergence } from '../scripts/maintenance/freeze-database.mjs';
@@ -23,7 +24,7 @@ test('real old-schema stop inspection is read-only, retains future attendance, a
     finally { await client.end(); }
   };
   try {
-    await migrate(drizzle(sql), { migrationsFolder: './drizzle' });
+    await migrateThrough(sql, 93);
     await sql`INSERT INTO discord_notifications(id, family, kind, dedupe_key, payload, payload_hash, next_attempt_at)
       VALUES ('future', 'attendance', 'send_message', 'future', '{}'::jsonb, ${'a'.repeat(64)}, now() + interval '1 year')`;
     const baseline = await saved();
