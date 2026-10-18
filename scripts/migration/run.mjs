@@ -7,7 +7,6 @@ import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
-import { applicationOwnerPlan, mapApplicationOwner } from './application-role.mjs';
 import { importSnapshot } from './snapshot.mjs';
 import { createMigrationReferences } from './reference.mjs';
 import { schemaStructure } from './schema.mjs';
@@ -18,6 +17,7 @@ import { CANONICAL_IDENTITY_PROFILE, WORKER_SLOT_RETIREMENT_PROFILE, isCanonical
   CANONICAL_IDENTITY_SOURCE_LENGTH, loadCanonicalIdentityHistory,
   createCanonicalIdentityProfile, inspectCanonicalSource, inspectCanonicalIdentityTransition,
   compareCanonicalIdentityTransition } from './canonical-identities.mjs';
+import { applicationOwnerPlan, mapApplicationOwner } from './application-role.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
   writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
@@ -116,8 +116,8 @@ function summary(manifest) {
 export async function runAction(action, manifest, directory, key, save, { signal, freezeGuard, roleAudit, applicationCopy } = {}) {
   const report = name => resolve(directory, `${name}.json.enc`);
   const archive = resolve(directory, 'source.dump.enc');
-  let sourceSnapshotOpen = false;
   let sourceTransition;
+  let sourceSnapshotOpen = false;
   const beforeMutation = async () => {
     requireCondition(!signal?.aborted, 'REHEARSAL_INTERRUPTED');
     await assertCandidate(manifest);

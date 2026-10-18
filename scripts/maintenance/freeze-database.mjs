@@ -1,9 +1,12 @@
+import { fileURLToPath } from 'node:url';
+import { loadCanonicalIdentityHistory, WORKER_SLOT_RETIREMENT_PROFILE } from '../migration/canonical-identities.mjs';
+import { migrationHistoryMatches } from '../check-migration-history.mjs';
 import { connect } from '../migration/database.mjs';
 import { inspectConnectionProof } from './connection-proof.mjs';
 import { check } from './freeze-contract.mjs';
 
-// These are the old-schema preparation release's contracts. Unknown new shapes
-// fail, rather than silently dropping a writer from the stop decision.
+// Keep the old writer inventory until the exact reviewed retirement history
+// proves that the global slot was removed. Unknown missing tables still fail.
 export const convergenceQueries = {
   ocrAdmissions: ['ocr_submissions', "status NOT IN ('settled','aborted')"],
   ocrMembers: ['ocr_submission_members', "status NOT IN ('registered','failed')"],
@@ -24,6 +27,17 @@ export async function inspectConvergence(sql, url) {
   const database = await inspectConnectionProof(sql, url);
   const pending = {};
   for (const [name, [table, predicate]] of Object.entries(convergenceQueries)) {
+    if (name === 'executionSlot') {
+      const [relation] = await sql`SELECT to_regclass('public.worker_execution_slots') IS NOT NULL AS present`;
+      if (!relation.present) {
+        const expected = await loadCanonicalIdentityHistory(fileURLToPath(new URL('../../', import.meta.url)),
+          { profile: WORKER_SLOT_RETIREMENT_PROFILE });
+        const actual = await sql`SELECT hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations ORDER BY id`;
+        check(migrationHistoryMatches(expected.entries, actual), 'RETIRED_SLOT_HISTORY_REQUIRED');
+        pending[name] = '0';
+        continue;
+      }
+    }
     const [access] = await sql`SELECT row_security_active(${`public.${table}`}::regclass) AS filtered`;
     check(access?.filtered === false, 'UNFILTERED_WRITER_TABLE_REQUIRED');
     const [row] = await sql.unsafe(`SELECT count(*)::text AS count FROM public."${table}" WHERE ${predicate}`);
