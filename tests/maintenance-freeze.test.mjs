@@ -215,7 +215,7 @@ test('evidence expiry and changed candidates cannot be replaced with a bare succ
   assert.throws(() => validateExternalEvidence(f.input.externalEvidence, f.record(), f.deployment, Date.parse(f.input.externalEvidence.validUntil)));
 });
 
-test('provider pins full config and current version under its own lease and sanitizes failures', async () => {
+for (const mode of ['frozen', 'normal']) test(`provider pins full config and current version under its own lease (${mode})`, async () => {
   const machine = { id: '11111111111111', instance_id: 'initial', state: 'started',
     config: { image: 'mutable:tag', env: { FIXTURE: 'kept' }, guest: { cpus: 1 } },
     image_ref: { registry: 'fixture', repository: 'api', digest: `sha256:${'f'.repeat(64)}` }, events: [{ type: 'start' }] };
@@ -236,14 +236,14 @@ test('provider pins full config and current version under its own lease and sani
         assert.equal(body.current_version, 'initial');
         assert.equal(options.headers['fly-machine-lease-nonce'], 'our-lease');
         assert.deepEqual(body.config.guest, machine.config.guest);
-        assert.equal(body.config.env[modeKey], 'frozen');
+        assert.equal(body.config.env[modeKey], mode);
         return Response.json({ ...machine, instance_id: 'updated', config: body.config });
       }
       return Response.json(machine);
     } });
   const target = { app: 'fixture-app', id: machine.id };
   const original = await provider.inspect(target);
-  const updated = await provider.freeze(target, original, async () => { guardCalls++; });
+  const updated = await provider[mode === 'frozen' ? 'freeze' : 'reopen'](target, original, async () => { guardCalls++; });
   assert.equal(updated.instance, 'updated');
   assert.ok(requests.every(item => item.url.startsWith('https://api.machines.dev/v1/')));
   assert.equal(requests.at(-1).method, 'DELETE');

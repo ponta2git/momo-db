@@ -47,16 +47,20 @@ export function validateExternalEvidence(evidence, record, deployment, now = Dat
   return evidence;
 }
 
-export function validateFreezeInput(input, record, now = Date.now()) {
-  check(input?.formatVersion === 1 && Array.isArray(input.targets) && input.targets.length > 0 && input.targets.length <= 100,
-    'INVALID_FREEZE_INPUT');
-  check(input.targets.every(target => roles.includes(target.role) && identifier(target.app) &&
+export function validateMachineTargets(targets) {
+  check(Array.isArray(targets) && targets.length > 0 && targets.length <= 100 &&
+    targets.every(target => roles.includes(target.role) && identifier(target.app) &&
     /^[a-f0-9]{10,32}$/.test(target.id) && /^.+@sha256:[a-f0-9]{64}$/.test(target.image) && hash(target.configDigest)) &&
-    roles.every(role => input.targets.some(target => target.role === role)) &&
-    new Set(input.targets.map(target => `${target.app}:${target.id}`)).size === input.targets.length &&
-    new Set(input.targets.map(target => target.app)).size === roles.length &&
-    roles.every(role => new Set(input.targets.filter(target => target.role === role).map(target => target.app)).size === 1),
+    roles.every(role => targets.some(target => target.role === role)) &&
+    new Set(targets.map(target => `${target.app}:${target.id}`)).size === targets.length &&
+    new Set(targets.map(target => target.app)).size === roles.length &&
+    roles.every(role => new Set(targets.filter(target => target.role === role).map(target => target.app)).size === 1),
   'EXACT_CONSUMER_MACHINE_INVENTORY_REQUIRED');
+}
+
+export function validateFreezeInput(input, record, now = Date.now()) {
+  check(input?.formatVersion === 1, 'INVALID_FREEZE_INPUT');
+  validateMachineTargets(input.targets);
   validateControl(record);
   check(record.cutover?.phase === 'DRAINING' && record.cutover.candidates, 'DRAINING_CONTROL_REQUIRED');
   validateDatabaseProof(input.database);

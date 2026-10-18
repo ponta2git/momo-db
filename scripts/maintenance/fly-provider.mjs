@@ -67,31 +67,38 @@ export async function createFlyProvider({ token = process.env.FLY_API_TOKEN, fet
       return { ...after, bootId };
     },
     async secrets(app) { return validateSecrets(parse(await cli(['secrets', 'list', '--app', part(app), '--json']))); },
-    async stage(target, guard) {
+    async stage(target, guard, mode = 'frozen') {
+      check(['frozen', 'normal'].includes(mode), 'INVALID_MAINTENANCE_MODE');
       await guard();
-      await cli(['secrets', 'set', `${modeKey}=frozen`, '--stage', '--app', part(target.app)]);
+      await cli(['secrets', 'set', `${modeKey}=${mode}`, '--stage', '--app', part(target.app)]);
     },
     async process(target, action, input) { return parse(await exec(target, processCommand(target.role, action, input))); },
     async freeze(target, original, guard) {
-      const resource = path(target);
-      const lease = await request(`${resource}/lease`, 'POST', { ttl: 120, description: 'maintenance-freeze' });
-      const nonce = lease?.data?.nonce;
-      check(typeof nonce === 'string' && nonce.length > 0, 'MACHINE_LEASE_UNAVAILABLE');
-      try {
-        check(lease.data.version === original.instance, 'MACHINE_LEASE_VERSION_CHANGED');
-        check(same(await provider.inspect(target), original), 'MACHINE_CHANGED_BEFORE_FREEZE');
-        const config = { ...original.config, image: original.image, env: { ...original.config.env, [modeKey]: 'frozen' } };
-        await guard();
-        const updated = await request(resource, 'POST', { config, current_version: original.instance, skip_secrets: false }, nonce);
-        check(updated?.id === target.id && typeof updated.instance_id === 'string' &&
-          updated.instance_id !== original.instance && same(updated.config, config), 'MACHINE_UPDATE_RESULT_UNKNOWN');
-        return { instance: updated.instance_id, config, image: original.image };
-      } finally {
-        // Release only the lease acquired by this invocation. A release failure
-        // is also uncertain; never hide it and report the operation as success.
-        await request(`${resource}/lease`, 'DELETE', undefined, nonce);
-      }
+      return updateMode(target, original, guard, 'frozen');
+    },
+    async reopen(target, original, guard) {
+      return updateMode(target, original, guard, 'normal');
     },
   };
+  async function updateMode(target, original, guard, mode) {
+    const resource = path(target);
+    const lease = await request(`${resource}/lease`, 'POST', { ttl: 120, description: `maintenance-${mode}` });
+    const nonce = lease?.data?.nonce;
+    check(typeof nonce === 'string' && nonce.length > 0, 'MACHINE_LEASE_UNAVAILABLE');
+    try {
+      check(lease.data.version === original.instance, 'MACHINE_LEASE_VERSION_CHANGED');
+      check(same(await provider.inspect(target), original), 'MACHINE_CHANGED_BEFORE_UPDATE');
+      const config = { ...original.config, image: original.image, env: { ...original.config.env, [modeKey]: mode } };
+      await guard();
+      const updated = await request(resource, 'POST', { config, current_version: original.instance, skip_secrets: false }, nonce);
+      check(updated?.id === target.id && typeof updated.instance_id === 'string' &&
+        updated.instance_id !== original.instance && same(updated.config, config), 'MACHINE_UPDATE_RESULT_UNKNOWN');
+      return { instance: updated.instance_id, config, image: original.image };
+    } finally {
+      // Release only the lease acquired by this invocation. A release failure
+      // is also uncertain; never hide it and report the operation as success.
+      await request(`${resource}/lease`, 'DELETE', undefined, nonce);
+    }
+  }
   return provider;
 }

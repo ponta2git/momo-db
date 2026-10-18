@@ -63,6 +63,7 @@ pnpm build
 | `pnpm maintenance:control <command>` | 永続停止状態・固定候補・実行 receipt の確認と operator による更新（[導入と運用](docs/maintenance-control.md)） |
 | `pnpm maintenance:freeze <command>` | 全 writer の drain・永続停止・停止継続の検査 |
 | `pnpm maintenance:rehearsal <command>` | 停止後の backup・最終リハーサル・受入証拠を同じ停止世代へ結び付ける |
+| `pnpm maintenance:resume <command>` | 再開境界を先に記録し、固定構成を通常起動へ戻して安定確認を登録する |
 
 ## ローカル開発（postgres コンテナ使用）
 

@@ -138,3 +138,31 @@ pnpm maintenance:rehearsal receipt --run /private/path/final-run --key /private/
 producer input は既存の receipt 契約の `operation`、`producer`、必要な操作の `scope` だけを指定する。source / baseline / target / snapshot / final proof / 前段階の digest は検証済み記録から導出し、execution tuple は含めない。CI の `bind-receipt` が実 run / attempt を付け、master producer と artifact の成功・同一性を確認する。生成だけでは mutation の許可を与えない。
 
 `cleanup` は同じ run が所有するローカル資源だけを削除し、暗号化 backup と証拠は保持する。本番 restore、接続先変更、再開は行わない。
+
+## 通常構成または復旧構成の再開
+
+`maintenance:resume` は `READY_TO_RESUME` または `RECOVERY_READY` の受入証拠と実環境を照合する。別 DB への復元や credential 切替そのものは既存 runbook で先に行い、旧 pool が残らず、全 consumer と migration 接続が同じ DB / ledger に揃うまで再開しない。
+
+private input は `formatVersion: 1`、`readiness`、元の `approvals`、現在の停止世代に対応する `externalEvidence`、`deadline`、`recoveryReserveMs` を持つ。`readiness` は `formatVersion: 1`、固定した `targets`、共通の `database` 証拠、実際の業務確認 report の `acceptanceDigest` を持ち、その全体の digest を制御記録の `resumeReadiness` または `recoveryReadiness` に登録する。`targets` の形式は freeze と同じで、再開する固定 image と **現在の frozen 全設定** の digest を指定する。復旧時は旧版 image と復旧先の証拠を使い、現在の新しい停止世代へ結び付ける。
+
+```bash
+pnpm maintenance:resume prepare --run /private/path/resume-run --key /private/path/freeze.key \
+  --input /private/path/resume-input.json --source-url-file /private/path/direct-url
+pnpm maintenance:resume reopen --run /private/path/resume-run --key /private/path/freeze.key
+pnpm maintenance:resume status --run /private/path/resume-run --key /private/path/freeze.key
+```
+
+`prepare` は image / 全設定 / boot / secret / 全 machine、frozen readiness と実接続、writer の収束、外部配備制御を読取り確認する。`reopen` は同じ状態を再検証し、**normal secret の stage より前に** `REOPENING` または `RECOVERY_REOPENING` を CAS 記録する。stage 済み secret だけでも再起動した machine が通常処理を始め得るため、この順序を変えない。
+
+その後、各 app に `MOMO_MAINTENANCE_MODE=normal` を stage し、固定 image・全設定を保って Summit → worker → API の順に通常起動へ更新する。lease / version と操作直前の control を照合し、全 writer の normal status と同じ実 DB / ledger を確認する。最後は `opened-awaiting-stability` で止め、通常処理が始まっただけでは `RESUMED` にしない。
+
+operator は受付、queue / lease、分析公開、通知、旧 URL / 認可、異常率の実測 report を確認し、暗号化 stability acceptance を作る。形式は `formatVersion: 1`、`operator`、`cutoverId`、`stopEpoch`、この run の `resumeProofDigest`、`observedAt`、`validUntil`、`incomplete: []` と、[必須区分](../scripts/maintenance/resume.mjs)ごとの `{kind, outcome: "passed", reportDigest}` である。
+
+```bash
+pnpm maintenance:resume stable --run /private/path/resume-run --key /private/path/freeze.key \
+  --acceptance /private/path/stability-acceptance.json.enc
+```
+
+`stable` は受入証拠と live 状態を再照合し、private proof を保存してから `RESUMED` または `RECOVERY_RESUMED` へ CAS 登録する。通常経路はその証拠を publish 専用入口へ渡し、復旧経路は既存の `close-recovery` を使う。
+
+CLI 強制終了、途中再開、CAS 結果不明の後は同じ `reopen` を再実行できない。journal と control・実 process を照合する。再開境界以降は部分再開でも通常書込み済みの可能性があり、旧 backup への自動復元、停止世代の reset、normal secret の自動取消しを行わない。machine / boot / secret が変わった場合も安定証拠を流用せず、実構成と受入確認を更新してから制御記録を進める。
