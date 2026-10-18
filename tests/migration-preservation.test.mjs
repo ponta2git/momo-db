@@ -1,3 +1,4 @@
+import { migrateLegacy, legacyIdentityMigrationCount } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -108,7 +109,7 @@ test('backup/restore plus the new migration tail preserves held history and all 
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
     copy = createTestClient(restored);
     assert.deepEqual(await history(copy), before, 'The backup must restore the complete original history');
-    await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+    await migrateLegacy(copy);
     const numbered = expectedPublicIdentifierRows({ held_events: before.held, matches: before.matches });
     assert.deepEqual(await history(copy), { ...before, held: numbered.held_events, matches: numbered.matches },
       'Legacy IDs, values and references must remain identical while public numbers are added');
@@ -122,7 +123,7 @@ test('backup/restore plus the new migration tail preserves held history and all 
       WHERE notification_id = 'migration-notification-ended-linked' AND part_no = 0`;
     assert.equal(delivered.delivered_message_id, 'migration-discord-message');
     assert.equal((await copy`SELECT to_regclass('public.discord_outbox') AS old`)[0].old, null);
-    assert.equal((await copy`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`)[0].n, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
+    assert.equal((await copy`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`)[0].n, legacyIdentityMigrationCount);
     // Existing migration contents/hashes are not changed by the tail.
     assert.deepEqual(await copy`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id LIMIT 41`,
       await original`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`);
@@ -222,7 +223,7 @@ test('application-policy cutover preserves shared snapshots, generations and par
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
     copy = createTestClient(restored);
     assert.deepEqual(await sharedNotificationRows(copy), before);
-    await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+    await migrateLegacy(copy);
     assert.deepEqual(await sharedNotificationRows(copy, true), before);
     assert.equal((await copy`SELECT to_regprocedure('public.receive_discord_result_notification(jsonb,timestamp with time zone)') AS fn`)[0].fn, null);
     assert.deepEqual(await copy`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id LIMIT 44`,

@@ -1,3 +1,4 @@
+import { migrateLegacy } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
@@ -13,7 +14,7 @@ async function isolated(run) {
   docker(['createdb', '-U', username, name]);
   const db = createTestClient(name);
   try {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await migrateLegacy(db);
     await db`INSERT INTO game_titles(id,name,layout_family) VALUES ('radar-a','A','momotetsu_2'),('radar-b','B','momotetsu_2')`;
     await db`UPDATE series_analysis_title_states SET algorithm_version='series-analysis-v6',artifact_schema_version=5,validation_contract_id=${contract}`;
     await run(db);

@@ -582,6 +582,83 @@
       "when": 1792284916828,
       "tag": "0082_constrain-layout-families",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792286314208,
+      "tag": "0083_explicit-analysis-transitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792286623785,
+      "tag": "0084_expand-canonical-identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792286636219,
+      "tag": "0085_backfill-canonical-identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792287148076,
+      "tag": "0086_detach-legacy-identity-references",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792287232093,
+      "tag": "0087_retain-legacy-identity-columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792287256444,
+      "tag": "0088_promote-canonical-identity-columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792287802231,
+      "tag": "0089_rebind-canonical-trigger-columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792287855126,
+      "tag": "0090_contract-canonical-identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1792287870941,
+      "tag": "0091_backfill-frozen-identity-anchors",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792287890195,
+      "tag": "0092_attach-canonical-identity-references",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792287900052,
+      "tag": "0093_canonical-publication-guards",
+      "breakpoints": true
     }
   ]
 }

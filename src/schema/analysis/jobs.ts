@@ -1,4 +1,5 @@
 import {
+  uuid,
   bigint,
   boolean,
   check,
@@ -12,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { gameTitles } from "../catalog.js";
-import { seriesRadarBases } from "../radar.js";
+import { seriesRadarBasisIdentities } from "../radar.js";
 import { seriesAnalysisOperationRequests, seriesAnalysisCampaigns } from "./operations.js";
 import {
   checkSeriesAnalysisValidationContract,
@@ -22,12 +23,15 @@ import {
 export const seriesAnalysisJobs = pgTable(
   "series_analysis_jobs",
   {
-    id: text("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyRadarOperationId: text("legacy_radar_operation_id"),
+    legacyLeaseAttemptId: text("legacy_lease_attempt_id"),
+    id: uuid("id").primaryKey(),
     workKind: text("work_kind").notNull().default("analysis"),
-    radarOperationId: text("radar_operation_id"),
-    radarBasisId: text("radar_basis_id").references(() => seriesRadarBases.id),
+    radarOperationId: uuid("radar_operation_id"),
+    radarBasisId: uuid("radar_basis_id").references(() => seriesRadarBasisIdentities.id),
     radarGeneration: bigint("radar_generation", { mode: "bigint" }).notNull().default(sql`0`),
-    gameTitleId: text("game_title_id")
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
@@ -45,7 +49,7 @@ export const seriesAnalysisJobs = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     leaseOwner: text("lease_owner"),
-    leaseAttemptId: text("lease_attempt_id"),
+    leaseAttemptId: uuid("lease_attempt_id"),
     leaseFencingToken: bigint("lease_fencing_token", { mode: "bigint" }),
     fencingCounter: bigint("fencing_counter", { mode: "bigint" }).notNull().default(sql`0`),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
@@ -65,6 +69,8 @@ export const seriesAnalysisJobs = pgTable(
       .defaultNow()
   },
   (table) => [
+    check("series_analysis_jobs_radar_operation_legacy_null_check", sql`(${table.radarOperationId} IS NULL) = (${table.legacyRadarOperationId} IS NULL)`),
+    check("series_analysis_jobs_lease_attempt_legacy_null_check", sql`(${table.leaseAttemptId} IS NULL) = (${table.legacyLeaseAttemptId} IS NULL)`),
     check("series_analysis_jobs_work_kind_check", sql`${table.workKind} IN ('analysis','radar_prepare')`),
     check("series_analysis_jobs_radar_purpose_check", sql`(${table.workKind} = 'radar_prepare') = (${table.radarOperationId} IS NOT NULL) AND ${table.radarGeneration} >= 0`),
     check(
@@ -118,16 +124,16 @@ export const seriesAnalysisJobs = pgTable(
       sql`(${table.status} IN ('succeeded','failed','timed_out')) = (${table.finishedAt} IS NOT NULL)`
     ),
     index("series_analysis_jobs_title_terminal_idx")
-      .on(table.gameTitleId, table.finishedAt.desc().nullsLast(), table.id.desc().nullsFirst())
+      .on(table.gameTitleId, table.finishedAt.desc().nullsLast(), table.legacyId.desc().nullsFirst())
       .where(sql`${table.workKind} = 'analysis' AND ${table.status} IN ('succeeded','failed','timed_out')`),
     index("series_analysis_jobs_recent_idx")
-      .on(table.createdAt.desc().nullsFirst(), table.id.desc().nullsFirst())
+      .on(table.createdAt.desc().nullsFirst(), table.legacyId.desc().nullsFirst())
       .where(sql`${table.workKind} = 'analysis'`),
     uniqueIndex("series_analysis_jobs_active_title_unique")
       .on(table.gameTitleId)
       .where(sql`${table.status} IN ('queued','running')`),
     index("series_analysis_jobs_claim_idx")
-      .on(table.availableAt, table.requestedAt, table.id)
+      .on(table.availableAt, table.requestedAt, table.legacyId)
       .where(sql`${table.status} = 'queued'`),
     index("series_analysis_jobs_terminal_cleanup_idx")
       .on(table.finishedAt)
@@ -138,13 +144,16 @@ export const seriesAnalysisJobs = pgTable(
 export const seriesAnalysisJobRequests = pgTable(
   "series_analysis_job_requests",
   {
-    id: text("id").primaryKey(),
-    gameTitleId: text("game_title_id").notNull(),
-    operationRequestId: text("operation_request_id").references(
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyGameTitleId: text("legacy_game_title_id").notNull(),
+    legacyAssignedAttemptId: text("legacy_assigned_attempt_id"),
+    id: uuid("id").primaryKey(),
+    gameTitleId: uuid("game_title_id").notNull(),
+    operationRequestId: uuid("operation_request_id").references(
       () => seriesAnalysisOperationRequests.id,
       { onDelete: "cascade" }
     ),
-    campaignId: text("campaign_id").references(() => seriesAnalysisCampaigns.id, {
+    campaignId: uuid("campaign_id").references(() => seriesAnalysisCampaigns.id, {
       onDelete: "cascade"
     }),
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
@@ -154,16 +163,17 @@ export const seriesAnalysisJobRequests = pgTable(
     trigger: text("trigger").notNull(),
     forceRun: boolean("force_run").notNull().default(false),
     status: text("status").notNull().default("pending"),
-    assignedJobId: text("assigned_job_id").references(() => seriesAnalysisJobs.id, {
+    assignedJobId: uuid("assigned_job_id").references(() => seriesAnalysisJobs.id, {
       onDelete: "set null"
     }),
-    assignedAttemptId: text("assigned_attempt_id"),
+    assignedAttemptId: uuid("assigned_attempt_id"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     fulfilledAt: timestamp("fulfilled_at", { withTimezone: true })
   },
   (table) => [
+    check("series_analysis_job_requests_assigned_attempt_legacy_null_check", sql`(${table.assignedAttemptId} IS NULL) = (${table.legacyAssignedAttemptId} IS NULL)`),
     check(
       "series_analysis_job_requests_input_revision_check",
       sql`${table.inputRevision} >= 0`
@@ -194,7 +204,7 @@ export const seriesAnalysisJobRequests = pgTable(
       sql`(${table.status} = 'fulfilled') = (${table.fulfilledAt} IS NOT NULL)`
     ),
     index("series_analysis_job_requests_pending_title_idx")
-      .on(table.gameTitleId, table.acceptedAt, table.id)
+      .on(table.gameTitleId, table.acceptedAt, table.legacyId)
       .where(sql`${table.status} IN ('pending','assigned')`),
     index("series_analysis_job_requests_operation_idx")
       .on(table.operationRequestId)
@@ -203,7 +213,7 @@ export const seriesAnalysisJobRequests = pgTable(
       .on(table.campaignId)
       .where(sql`${table.campaignId} IS NOT NULL`),
     index("series_analysis_job_requests_job_idx")
-      .on(table.assignedJobId, table.acceptedAt, table.id)
+      .on(table.assignedJobId, table.acceptedAt, table.legacyId)
       .where(sql`${table.assignedJobId} IS NOT NULL`),
     index("series_analysis_job_requests_attempt_idx")
       .on(table.assignedAttemptId)
@@ -217,8 +227,9 @@ export const seriesAnalysisJobRequests = pgTable(
 export const seriesAnalysisJobAttempts = pgTable(
   "series_analysis_job_attempts",
   {
-    id: text("id").primaryKey(),
-    jobId: text("job_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    jobId: uuid("job_id")
       .notNull()
       .references(() => seriesAnalysisJobs.id, { onDelete: "cascade" }),
     attemptNo: integer("attempt_no").notNull(),
@@ -355,11 +366,13 @@ export const seriesAnalysisReaderCapabilities = pgTable(
 export const workerExecutionSlots = pgTable(
   "worker_execution_slots",
   {
+    legacyJobId: text("legacy_job_id"),
+    legacyAttemptId: text("legacy_attempt_id"),
     slotKey: text("slot_key").primaryKey(),
     taskKind: text("task_kind"),
     owner: text("owner"),
-    jobId: text("job_id"),
-    attemptId: text("attempt_id"),
+    jobId: uuid("job_id"),
+    attemptId: uuid("attempt_id"),
     holderPreemptible: boolean("holder_preemptible"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     fencingToken: bigint("fencing_token", { mode: "bigint" })
@@ -372,6 +385,8 @@ export const workerExecutionSlots = pgTable(
       .defaultNow()
   },
   (table) => [
+    check("worker_execution_slots_job_legacy_null_check", sql`(${table.jobId} IS NULL) = (${table.legacyJobId} IS NULL)`),
+    check("worker_execution_slots_attempt_legacy_null_check", sql`(${table.attemptId} IS NULL) = (${table.legacyAttemptId} IS NULL)`),
     check(
       "worker_execution_slots_key_check",
       sql`${table.slotKey} = 'shared-heavy-work'`

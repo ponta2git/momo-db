@@ -1,4 +1,6 @@
 import {
+  uuid,
+  unique,
   bigint,
   check,
   date,
@@ -41,7 +43,8 @@ export type ResponseChoice = (typeof RESPONSE_CHOICES)[number];
 export const sessions = pgTable(
   "sessions",
   {
-    id: text("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
     weekKey: text("week_key").notNull(),
     postponeCount: integer("postpone_count").notNull().default(0),
     // why: `Iso` suffix で文字列日付型を名前から識別可能にする。 @see ADR-0014
@@ -98,11 +101,12 @@ export const sessions = pgTable(
 export const responses = pgTable(
   "responses",
   {
-    id: text("id").primaryKey(),
-    sessionId: text("session_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    memberId: text("member_id")
+    memberId: uuid("member_id")
       .notNull()
       .references(() => members.id),
     choice: text("choice").notNull(),
@@ -135,7 +139,8 @@ export const responses = pgTable(
 //   DECIDED→COMPLETED CAS と同一 tx で挿入し、「COMPLETED なのに HeldEvent 無し」の
 //   永続不整合を回避する (COMPLETED は終端のため起動時リカバリが拾わない)。
 export const heldEvents = pgTable("held_events", {
-  id: text("id").primaryKey(),
+  legacyId: text("legacy_id").notNull().unique(),
+  id: uuid("id").primaryKey(),
   // Public routes serialize this independent number as a decimal string.
   publicId: bigint("public_id", { mode: "bigint" })
     .notNull()
@@ -145,7 +150,7 @@ export const heldEvents = pgTable("held_events", {
   //   momo-result が単独で作成した ad-hoc 開催履歴は session_id NULL になる。
   // unique: NULL 以外は 1 Session につき 1 HeldEvent。
   //   summit の DECIDED→COMPLETED CAS との onConflictDoNothing anchor として必要。
-  sessionId: text("session_id")
+  sessionId: uuid("session_id")
     .unique()
     // why: 終了したアンケートの整理で、開催・参加者・試合の履歴を失わない。
     .references(() => sessions.id, { onDelete: "set null" }),
@@ -156,8 +161,9 @@ export const heldEvents = pgTable("held_events", {
     .notNull()
     .defaultNow()
 }, (table) => [
+  unique("held_events_id_legacy_unique").on(table.id, table.legacyId),
   // The history list and both adjacent-detail directions share bytewise ID ties.
-  index("held_events_navigation_idx").on(table.startAt, sql`${table.id} COLLATE "C"`)
+  index("held_events_navigation_idx").on(table.startAt, sql`${table.legacyId} COLLATE "C"`)
 ]);
 
 // source-of-truth: 開催ごとの参加メンバースナップショット (§8.3)。
@@ -166,10 +172,10 @@ export const heldEvents = pgTable("held_events", {
 export const heldEventParticipants = pgTable(
   "held_event_participants",
   {
-    heldEventId: text("held_event_id")
+    heldEventId: uuid("held_event_id")
       .notNull()
       .references(() => heldEvents.id, { onDelete: "cascade" }),
-    memberId: text("member_id")
+    memberId: uuid("member_id")
       .notNull()
       .references(() => members.id),
     createdAt: timestamp("created_at", { withTimezone: true })

@@ -1,3 +1,4 @@
+import { migrateLegacy } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -51,7 +52,7 @@ async function seed(db) {
     VALUES ('old-apply','notification-title','apply','succeeded','old-candidate','old-preview','old-basis','notification-account','old-key','old-hash','2026-01-01')`;
 }
 test('manual radar tail applies fresh and preserves restored rows while backfilling only successful publications', async () => {
-  await isolated(async db => { await migrate(drizzle(db),{migrationsFolder:'./drizzle'}); });
+  await isolated(async db => { await migrateLegacy(db); });
   await isolated(async (source,name) => {
     await previous(source); await seed(source);
     const before = await snapshotDatabase(source);
@@ -59,7 +60,7 @@ test('manual radar tail applies fresh and preserves restored rows while backfill
     await isolated(async (copy,restored) => {
       docker(['pg_restore','-U',username,'--exit-on-error','--no-owner','--no-acl','-d',restored],dump);
       assert.deepEqual(await snapshotDatabase(copy),before);
-      await migrate(drizzle(copy),{migrationsFolder:'./drizzle'});
+      await migrateLegacy(copy);
       const after = await snapshotDatabase(copy);
       for (const [table,rows] of Object.entries(expectedFencingCounterRows(expectedPublicIdentifierRows(expectedJobSchedulerRows(before.rows))))) {
         const expected = table === 'series_radar_candidates'
@@ -79,7 +80,7 @@ test('manual radar tail applies fresh and preserves restored rows while backfill
       await assert.rejects(copy`UPDATE series_radar_candidates SET manual_input='{}' WHERE id='manual'`,/immutable/);
       await copy`UPDATE series_radar_candidates SET status='failed' WHERE id='manual'`;
       const final = await snapshotDatabase(copy);
-      await migrate(drizzle(copy),{migrationsFolder:'./drizzle'});
+      await migrateLegacy(copy);
       assert.deepEqual(await snapshotDatabase(copy),final);
     });
   });

@@ -93,7 +93,7 @@ export const discordNotificationAttendance = pgTable(
   {
     notificationId: text("notification_id").primaryKey(),
     // why: 完了済み Session を整理した後も dedupe の親行は残す。
-    sessionId: text("session_id").references(() => sessions.id, { onDelete: "set null" }),
+    sessionId: text("session_id").references(() => sessions.legacyId, { onDelete: "set null" }),
     aggregateRevision: bigint("aggregate_revision", { mode: "number" }).notNull(),
     ordinal: smallint("ordinal").notNull()
   },

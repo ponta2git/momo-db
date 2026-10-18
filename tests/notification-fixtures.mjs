@@ -1,3 +1,4 @@
+import { canonicalIdentity } from '../scripts/identity/canonical.mjs';
 import postgres from 'postgres';
 
 export function createTestClient(database = process.env.MOMO_DB_TEST_DATABASE) {
@@ -19,6 +20,9 @@ export const at = (milliseconds) => new Date(now.getTime() + milliseconds);
 export const members = [1, 2, 3, 4].map(i => ({ memberId: `notification-member-${i}`, displayName: `Player ${i}` }));
 
 export async function resetFixtures(db) {
+  const [identityColumn] = await db`SELECT udt_name FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'members' AND column_name = 'id'`;
+  if (identityColumn?.udt_name === 'uuid') return resetCanonicalFixtures(db);
   // The dedicated database name/host guard above is mandatory before this reset.
   await db`TRUNCATE public.discord_notifications, public.match_drafts, public.matches,
     public.held_events, public.sessions, public.ocr_jobs, public.series_analysis_jobs CASCADE`;
@@ -62,4 +66,42 @@ export async function envelope(db, kind = 'ocr_completed', sourceJobId = 'job-1'
   };
   return { notificationId: `result:${kind}:${sourceJobId}`, kind, schemaVersion: 1, sourceJobId,
     occurredAt: now.toISOString(), settingsGeneration: String(setting.generation), data };
+}
+
+
+async function resetCanonicalFixtures(db) {
+  await db`TRUNCATE public.discord_notifications, public.match_drafts, public.matches,
+    public.held_events, public.sessions, public.ocr_jobs, public.series_analysis_jobs CASCADE`;
+  await db`UPDATE public.discord_notification_settings SET enabled = true`;
+  for (const [i, member] of members.entries()) {
+    await db`INSERT INTO members(id, legacy_id, user_id, display_name)
+      VALUES (${canonicalIdentity('members', member.memberId)}, ${member.memberId}, ${`notification-user-${i}`}, ${member.displayName}) ON CONFLICT DO NOTHING`;
+  }
+  const account = canonicalIdentity('momo_login_accounts', 'notification-account');
+  const title = canonicalIdentity('game_titles', 'notification-title');
+  const season = canonicalIdentity('season_masters', 'notification-season');
+  const map = canonicalIdentity('map_masters', 'notification-map');
+  const event = canonicalIdentity('held_events', 'notification-held');
+  await db`INSERT INTO momo_login_accounts(id, legacy_id, discord_user_id, display_name)
+    VALUES (${account}, 'notification-account', 'notification-account-user', 'Test account') ON CONFLICT DO NOTHING`;
+  await db`INSERT INTO game_titles(id, legacy_id, name, layout_family)
+    VALUES (${title}, 'notification-title', 'Notification test title', 'momotetsu_2') ON CONFLICT DO NOTHING`;
+  await db`INSERT INTO series_analysis_title_states(game_title_id, algorithm_version, artifact_schema_version, validation_contract_id)
+    SELECT ${title}, algorithm_version, artifact_schema_version, validation_contract_id FROM series_analysis_release_state
+    WHERE singleton_key = 'current' ON CONFLICT DO NOTHING`;
+  await db`INSERT INTO season_masters(id, legacy_id, game_title_id, name)
+    VALUES (${season}, 'notification-season', ${title}, 'Test season') ON CONFLICT DO NOTHING`;
+  await db`INSERT INTO map_masters(id, legacy_id, game_title_id, name)
+    VALUES (${map}, 'notification-map', ${title}, 'Test map') ON CONFLICT DO NOTHING`;
+  await db`INSERT INTO held_events(id, legacy_id, held_date_iso, start_at)
+    VALUES (${event}, 'notification-held', '2026-01-01', ${now.toISOString()})`;
+  await db`INSERT INTO match_drafts(id, legacy_id, created_by_account_id, status)
+    VALUES (${canonicalIdentity('match_drafts', 'notification-draft')}, 'notification-draft', ${account}, 'draft_ready')`;
+  for (const i of [1, 2]) {
+    const legacy = `notification-match-${i}`;
+    await db`INSERT INTO matches(id, legacy_id, held_event_id, legacy_held_event_id, match_no_in_event, game_title_id, layout_family,
+      season_master_id, owner_member_id, map_master_id, played_at, created_by_account_id)
+      VALUES (${canonicalIdentity('matches', legacy)}, ${legacy}, ${event}, 'notification-held', ${i}, ${title}, 'momotetsu_2',
+      ${season}, ${canonicalIdentity('members', members[0].memberId)}, ${map}, ${now.toISOString()}, ${account})`;
+  }
 }

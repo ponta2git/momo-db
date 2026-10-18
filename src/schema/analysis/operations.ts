@@ -1,4 +1,5 @@
 import {
+  uuid,
   bigint,
   check,
   index,
@@ -19,10 +20,12 @@ import {
 export const seriesAnalysisOperationRequests = pgTable(
   "series_analysis_operation_requests",
   {
-    id: text("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyGameTitleId: text("legacy_game_title_id"),
+    id: uuid("id").primaryKey(),
     scope: text("scope").notNull(),
-    gameTitleId: text("game_title_id"),
-    requestedByAccountId: text("requested_by_account_id").references(
+    gameTitleId: uuid("game_title_id"),
+    requestedByAccountId: uuid("requested_by_account_id").references(
       () => momoLoginAccounts.id,
       { onDelete: "set null" }
     ),
@@ -36,6 +39,7 @@ export const seriesAnalysisOperationRequests = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true })
   },
   (table) => [
+    check("series_analysis_operation_requests_game_title_legacy_null_check", sql`(${table.gameTitleId} IS NULL) = (${table.legacyGameTitleId} IS NULL)`),
     check(
       "series_analysis_operation_requests_scope_check",
       sql`${table.scope} IN ('title','all_titles')`
@@ -66,8 +70,9 @@ export const seriesAnalysisOperationRequests = pgTable(
 export const seriesAnalysisCampaigns = pgTable(
   "series_analysis_campaigns",
   {
-    id: text("id").primaryKey(),
-    operationRequestId: text("operation_request_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    operationRequestId: uuid("operation_request_id")
       .notNull()
       .unique()
       .references(() => seriesAnalysisOperationRequests.id, {
@@ -127,10 +132,12 @@ export const seriesAnalysisCampaigns = pgTable(
 export const seriesAnalysisCampaignTargets = pgTable(
   "series_analysis_campaign_targets",
   {
-    campaignId: text("campaign_id")
+    legacyGameTitleId: text("legacy_game_title_id").notNull(),
+    legacyJobRequestId: text("legacy_job_request_id"),
+    campaignId: uuid("campaign_id")
       .notNull()
       .references(() => seriesAnalysisCampaigns.id, { onDelete: "cascade" }),
-    gameTitleId: text("game_title_id").notNull(),
+    gameTitleId: uuid("game_title_id").notNull(),
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
     algorithmVersion: text("algorithm_version")
       .notNull()
@@ -140,7 +147,7 @@ export const seriesAnalysisCampaignTargets = pgTable(
       .default(1),
     validationContractId: text("validation_contract_id"),
     status: text("status").notNull().default("pending"),
-    jobRequestId: text("job_request_id"),
+    jobRequestId: uuid("job_request_id"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -149,6 +156,7 @@ export const seriesAnalysisCampaignTargets = pgTable(
       .defaultNow()
   },
   (table) => [
+    check("series_analysis_campaign_targets_job_request_legacy_null_check", sql`(${table.jobRequestId} IS NULL) = (${table.legacyJobRequestId} IS NULL)`),
     primaryKey({ columns: [table.campaignId, table.gameTitleId] }),
     check(
       "series_analysis_campaign_targets_input_revision_check",

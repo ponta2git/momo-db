@@ -1,3 +1,4 @@
+import { migrateLegacy, legacyIdentityMigrationCount } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -145,10 +146,10 @@ for (const holder of ['ocr', 'analysis']) {
       await isolated(async (copy, restored) => {
         docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
         assert.deepEqual(await snapshotDatabase(copy), before);
-        await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+        await migrateLegacy(copy);
         const after = await snapshotDatabase(copy);
         assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-        assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
+        assert.equal(after.history.length, legacyIdentityMigrationCount);
         for (const table of retiredQueueTables) assert.equal(after.rows[table], undefined);
         const changed = new Set([...retiredQueueTables, 'ocr_jobs', 'ocr_submissions', 'match_drafts',
           ...(holder === 'ocr' ? ['worker_execution_slots'] : [])]);
@@ -185,7 +186,7 @@ for (const holder of ['ocr', 'analysis']) {
             holder_preemptible: null, lease_expires_at: null, preempt_requested_by: null,
             preempt_requested_at: null, updated_at: slot.updated_at });
         }
-        await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+        await migrateLegacy(copy);
         assert.deepEqual(await snapshotDatabase(copy), after, 'Rerun must not repeat OCR retirement or mutate analysis work');
       });
     });
@@ -194,7 +195,7 @@ for (const holder of ['ocr', 'analysis']) {
 
 test('fresh scheduler schema requires versioned input for live jobs and retains terminal history', async () => {
   await isolated(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await migrateLegacy(db);
     await resetFixtures(db);
     await db`INSERT INTO source_images(id, owner_account_id, object_key, idempotency_key_hash)
       VALUES ('image', 'notification-account', 'test/new-image', ${'b'.repeat(64)})`;
@@ -238,7 +239,7 @@ test('an unexpected legacy OCR state rejects the whole cutover without partial r
     await db`INSERT INTO ocr_jobs(id, draft_id, image_id, image_path, requested_screen_type, status)
       VALUES ('unexpected', 'unexpected-draft', 'unexpected-image', '/history.png', 'total_assets', 'unexpected')`;
     const before = await snapshotDatabase(db);
-    await assert.rejects(migrate(drizzle(db), { migrationsFolder: './drizzle' }),
+    await assert.rejects(migrateLegacy(db),
       error => error.cause?.constraint_name === 'ocr_jobs_input_snapshot_check');
     assert.deepEqual(await snapshotDatabase(db), before, 'Schema, migration journal and every business row roll back together');
     assert.equal((await db`SELECT count(*)::int AS n FROM information_schema.columns

@@ -1,0 +1,109 @@
+{
+  "algorithm": "sha256-uuidv8-v1",
+  "namespace": "deabc659-a5ca-4dc0-9711-eae0614fa478",
+  "entityNamespaces": [
+    "members",
+    "member_aliases",
+    "momo_login_accounts",
+    "sessions",
+    "responses",
+    "held_events",
+    "game_titles",
+    "map_masters",
+    "season_masters",
+    "incident_masters",
+    "matches",
+    "match_drafts",
+    "source_images",
+    "ocr_jobs",
+    "ocr_drafts",
+    "ocr_submissions",
+    "series_analysis_operation_requests",
+    "series_analysis_campaigns",
+    "series_analysis_job_requests",
+    "series_analysis_jobs",
+    "series_analysis_job_attempts",
+    "series_analysis_artifacts",
+    "series_radar_bases",
+    "series_radar_candidates",
+    "series_radar_operations",
+    "series_radar_previews"
+  ],
+  "rfcVector": {
+    "namespace": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    "name": "www.example.com",
+    "expected": "5c146b14-3c52-8afd-938a-375d0df1fbf6"
+  },
+  "cases": [
+    {
+      "entity": "members",
+      "legacy": "fixture-member",
+      "canonical": "4f6d54e9-7de8-873c-a464-b510c2945ef0"
+    },
+    {
+      "entity": "matches",
+      "legacy": "fixture-match",
+      "canonical": "e244a250-5482-81f6-bf74-9856d7bc3828"
+    },
+    {
+      "entity": "members",
+      "legacy": "fixture-entity",
+      "canonical": "b6c8e7c7-7161-8dfe-b34e-c1cedeffb05c"
+    },
+    {
+      "entity": "matches",
+      "legacy": "fixture-entity",
+      "canonical": "610ea34c-aa63-848f-a910-957e44c9adf0"
+    },
+    {
+      "entity": "members",
+      "legacy": " fixture-entity",
+      "canonical": "b748a280-e49b-89e7-9d5a-dc8182516de8"
+    },
+    {
+      "entity": "members",
+      "legacy": "fixture-entity ",
+      "canonical": "1bc29daa-d511-8d49-99fe-c2240696fbde"
+    },
+    {
+      "entity": "members",
+      "legacy": "é",
+      "canonical": "0ea355a2-cedd-859f-959e-5aba953fcb77"
+    },
+    {
+      "entity": "members",
+      "legacy": "é",
+      "canonical": "9b0e678c-17d1-88f5-b04c-1ffe8116c3fd"
+    },
+    {
+      "entity": "game_titles",
+      "legacy": "作品:fixture",
+      "canonical": "27fecb5c-a45d-86fc-8a6b-22b5c9e2133a"
+    },
+    {
+      "entity": "series_analysis_artifacts",
+      "legacy": "analysis-artifact-fixture",
+      "canonical": "b47f56c4-d729-8e7f-baab-a94cf1576379"
+    },
+    {
+      "entity": "members",
+      "legacy": "{00112233-4455-6677-8899-AABBCCDDEEFF}",
+      "canonical": "00112233-4455-6677-8899-aabbccddeeff"
+    },
+    {
+      "entity": "members",
+      "legacy": "0011-2233-4455-6677-8899-aabb-ccdd-eeff",
+      "canonical": "00112233-4455-6677-8899-aabbccddeeff"
+    },
+    {
+      "entity": "members",
+      "legacy": "00000000-0000-0000-0000-000000000000",
+      "canonical": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "entity": "members",
+      "legacy": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+      "canonical": "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    }
+  ]
+}

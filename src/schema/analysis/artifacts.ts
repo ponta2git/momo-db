@@ -1,4 +1,6 @@
 import {
+  uuid,
+  foreignKey,
   bigint,
   check,
   index,
@@ -31,8 +33,8 @@ export const seriesAnalysisArtifacts = pgTable(
     scopeKeys: text("scope_keys").array().notNull().default(sql`'{}'::text[]`),
     gameTitleId: text("game_title_id")
       .notNull()
-      .references(() => gameTitles.id, { onDelete: "cascade" }),
-    attemptId: text("attempt_id").references(() => seriesAnalysisJobAttempts.id, {
+      .references(() => gameTitles.legacyId, { onDelete: "cascade" }),
+    attemptId: text("attempt_id").references(() => seriesAnalysisJobAttempts.legacyId, {
       onDelete: "set null"
     }),
     inputRevision: bigint("input_revision", { mode: "bigint" }).notNull(),
@@ -299,5 +301,30 @@ export const seriesAnalysisMatchContextArtifacts = pgTable(
       sql`${table.sourceMatchRevision} >= 0`
     ),
     index("series_analysis_match_context_artifacts_match_idx").on(table.matchId)
+  ]
+);
+
+// Stable UUID identity for an immutable legacy header; the source row is never rewritten.
+export const seriesAnalysisArtifactIdentities = pgTable(
+  "series_analysis_artifact_identities",
+  {
+    id: uuid("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    gameTitleId: uuid("game_title_id").notNull(),
+    legacyGameTitleId: text("legacy_game_title_id").notNull()
+  },
+  (table) => [
+    uniqueIndex("series_analysis_artifact_identities_id_title_unique").on(table.id, table.gameTitleId),
+    uniqueIndex("series_analysis_artifact_identities_legacy_title_unique").on(table.legacyId, table.gameTitleId),
+    foreignKey({
+      name: "series_analysis_artifact_identities_source_fk",
+      columns: [table.legacyId, table.legacyGameTitleId],
+      foreignColumns: [seriesAnalysisArtifacts.id, seriesAnalysisArtifacts.gameTitleId]
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "series_analysis_artifact_identities_title_fk",
+      columns: [table.gameTitleId, table.legacyGameTitleId],
+      foreignColumns: [gameTitles.id, gameTitles.legacyId]
+    }).onDelete("cascade")
   ]
 );
