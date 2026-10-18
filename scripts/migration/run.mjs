@@ -7,6 +7,7 @@ import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
+import { applicationOwnerPlan, mapApplicationOwner } from './application-role.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
   writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
@@ -20,15 +21,18 @@ const recoveryName = 'momo_rehearsal_recovery';
 export function parseArguments(args) {
   const [action, ...rest] = args;
   const options = {};
-  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest']);
+  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest', 'role-audit', 'copy']);
   for (let index = 0; index < rest.length; index += 2) {
     const name = rest[index].replace(/^--/, '');
     requireCondition(rest[index].startsWith('--') && allowed.has(name) && !(name in options) &&
       rest[index + 1] && !rest[index + 1].startsWith('--'), 'INVALID_ARGUMENTS');
     options[name] = rest[index + 1];
   }
-  requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
+  requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'application-role', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
   requireCondition(isAbsolute(options['key-file'] ?? ''), 'ABSOLUTE_KEY_PATH_REQUIRED');
+  if (action === 'application-role') requireCondition(isAbsolute(options['role-audit'] ?? '') &&
+    ['smoke', 'recovery'].includes(options.copy), 'APPLICATION_ROLE_INPUT_REQUIRED');
+  else requireCondition(!options['role-audit'] && !options.copy, 'INVALID_ARGUMENTS');
   return { action, options };
 }
 
@@ -110,7 +114,7 @@ function summary(manifest) {
     durationsMs: manifest.durationsMs };
 }
 
-export async function runAction(action, manifest, directory, key, save, { signal, freezeGuard } = {}) {
+export async function runAction(action, manifest, directory, key, save, { signal, freezeGuard, roleAudit, applicationCopy } = {}) {
   const report = name => resolve(directory, `${name}.json.enc`);
   const archive = resolve(directory, 'source.dump.enc');
   let sourceSnapshotOpen = false;
@@ -137,6 +141,29 @@ export async function runAction(action, manifest, directory, key, save, { signal
   if (action === 'status') return;
   if (action === 'cleanup') { await cleanupLocal(manifest, save); manifest.state = 'cleaned'; return; }
   await beforeMutation();
+
+  if (action === 'application-role') {
+    requireCondition(['verified', 'recovery-verified'].includes(manifest.state) && manifest.checks.migration &&
+      ['smoke', 'recovery'].includes(applicationCopy), 'VERIFIED_APPLICATION_COPY_REQUIRED');
+    if (applicationCopy === 'recovery') requireCondition(manifest.checks.databaseRecovery, 'VERIFIED_RECOVERY_REQUIRED');
+    const source = await readReport('source', manifest.snapshot?.auditDigest);
+    const plan = applicationOwnerPlan(source, roleAudit);
+    const expected = applicationCopy === 'smoke' ? await readReport('migrated', manifest.migratedDigest) :
+      await readReport('recovered', manifest.recoveredDigest);
+    return withLocalConnection(manifest, async () => {
+      const database = applicationCopy === 'smoke' ? 'momo_rehearsal_smoke' : recoveryName;
+      if (applicationCopy === 'smoke' && await databaseState(manifest, database) === 'missing') {
+        await createDatabase(manifest, database, migrationName, { beforeMutation });
+      }
+      const proof = await mapApplicationOwner(manifest, database, plan, { beforeMutation, expectedRows: expected.rows });
+      const proofDigest = await writeReport(`application-role-${applicationCopy}`, proof);
+      manifest.applicationRoles ??= {};
+      manifest.applicationRoles[applicationCopy] = { proofDigest, sourceAuditDigest: plan.sourceAuditDigest };
+      // Mapping proves the login and effective grants, not consumer behaviour.
+      // Keep application-role-behavior incomplete until the business gates run.
+      manifest.checks.applicationRoleMapping = true;
+    }, { signal });
+  }
 
   if (action === 'inspect') {
     const inspection = await withDatabase(await sourceUrl(manifest, key), sql => audit(sql, { identifiers: true, sequences: false }));
@@ -331,7 +358,7 @@ export async function main(args) {
       manifest = await readJson(path, key);
       requireCondition(manifest.formatVersion === 1, 'UNSUPPORTED_MANIFEST_VERSION');
       const started = performance.now();
-      const controller = ['restore', 'rehearse', 'verify', 'recover-rehearsal'].includes(action) ? new AbortController() : null;
+      const controller = ['restore', 'rehearse', 'verify', 'recover-rehearsal', 'application-role'].includes(action) ? new AbortController() : null;
       const interrupt = () => controller.abort();
       if (controller) {
         process.once('SIGINT', interrupt);
@@ -343,7 +370,8 @@ export async function main(args) {
         await writeJson(path, manifest, key);
       };
       try {
-        await runAction(action, manifest, directory, key, save, { signal: controller?.signal });
+        await runAction(action, manifest, directory, key, save, { signal: controller?.signal,
+          ...(action === 'application-role' ? { roleAudit: await readJson(options['role-audit'], key), applicationCopy: options.copy } : {}) });
         manifest.durationsMs[action] = Math.round(performance.now() - started);
         await save();
       } catch (error) {

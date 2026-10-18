@@ -33,8 +33,8 @@ const privateInput = async path => {
 export async function main(args) {
   const [action, ...rest] = args;
   const additional = { prepare: ['--freeze-run', '--postgres-image', '--profile'], seal: ['--acceptance'],
-    receipt: ['--input', '--output'] }[action] ?? [];
-  check(['prepare', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'seal', 'receipt', 'status', 'cleanup'].includes(action) &&
+    receipt: ['--input', '--output'], 'application-role': ['--role-audit', '--copy'] }[action] ?? [];
+  check(['prepare', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'application-role', 'seal', 'receipt', 'status', 'cleanup'].includes(action) &&
     rest.length % 2 === 0, 'INVALID_FINAL_REHEARSAL_COMMAND');
   const options = {};
   for (let index = 0; index < rest.length; index += 2) {
@@ -43,6 +43,8 @@ export async function main(args) {
     options[name] = rest[index + 1];
   }
   check(isAbsolute(options['--run'] ?? '') && isAbsolute(options['--key'] ?? ''), 'ABSOLUTE_RUN_AND_KEY_REQUIRED');
+  if (action === 'application-role') check(isAbsolute(options['--role-audit'] ?? '') &&
+    ['smoke', 'recovery'].includes(options['--copy']), 'APPLICATION_ROLE_INPUT_REQUIRED');
   const directory = resolve(options['--run']);
   const key = await loadKey(options['--key']);
   const rehearsal = resolve(directory, 'rehearsal');
@@ -132,7 +134,9 @@ export async function main(args) {
         const started = performance.now();
         process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
         try {
-          await runAction(action, manifest, rehearsal, key, save, { signal: controller.signal, freezeGuard });
+          await runAction(action, manifest, rehearsal, key, save, { signal: controller.signal, freezeGuard,
+            ...(action === 'application-role' ? { roleAudit: await readJson(options['--role-audit'], key),
+              applicationCopy: options['--copy'] } : {}) });
           await freezeGuard();
           manifest.durationsMs[action] = Math.round(performance.now() - started);
           await save();
