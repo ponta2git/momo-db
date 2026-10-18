@@ -47,6 +47,7 @@ export const seriesAnalysisJobs = pgTable(
     leaseOwner: text("lease_owner"),
     leaseAttemptId: text("lease_attempt_id"),
     leaseFencingToken: bigint("lease_fencing_token", { mode: "bigint" }),
+    fencingCounter: bigint("fencing_counter", { mode: "bigint" }).notNull().default(sql`0`),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     leaseValidationContractId: text("lease_validation_contract_id"),
     attemptCount: integer("attempt_count").notNull().default(0),
@@ -99,6 +100,7 @@ export const seriesAnalysisJobs = pgTable(
       "series_analysis_jobs_counts_check",
       sql`${table.attemptCount} >= 0 AND ${table.transientRetryCount} BETWEEN 0 AND 3 AND ${table.leaseRecoveryCount} BETWEEN 0 AND 3`
     ),
+    check("series_analysis_jobs_fencing_counter_check", sql`${table.fencingCounter} >= 0`),
     check(
       "series_analysis_jobs_result_disposition_check",
       sql`${table.resultDisposition} IN ('published','reused','none')`

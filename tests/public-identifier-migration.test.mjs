@@ -149,7 +149,7 @@ async function assertIdentitySchema(db) {
 
 test('fresh identities start at one, preserve decimal bigint precision and reject explicit or duplicate values', async () => {
   await isolated(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await prefix(db, 77);
     await assertIdentitySchema(db);
     assert.deepEqual(await sequences(db), {
       held_events: { last_value: '1', is_called: false }, matches: { last_value: '1', is_called: false }
@@ -186,13 +186,13 @@ test('restored history receives C-ordered numbers without changing any legacy ro
       // pg_restore compacts dropped-column ordinals and can normalize CHECK
       // expression parentheses. Compare the migration against its restored baseline.
       const beforeSchema = await schema(copy);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      await prefix(copy, 77);
       const after = await snapshotDatabase(copy);
       assert.deepEqual(after.rows, expectedPublicIdentifierRows(before.rows));
       assert.equal((await copy`SELECT analysis_revision::text FROM matches WHERE id = '2'`)[0].analysis_revision,
         '9007199254740993', 'Legacy bigint values must keep all bits');
       assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-      assert.equal(after.history.length, journal().entries.length);
+      assert.equal(after.history.length, 78);
       await assertIdentitySchema(copy);
       const afterSchema = await schema(copy);
       assert.equal(afterSchema.columns.length, beforeSchema.columns.length + 2);
@@ -219,7 +219,7 @@ test('restored history receives C-ordered numbers without changing any legacy ro
       assert.equal((await copy`SELECT public_id::text FROM matches WHERE id = 'after-migration'`)[0].public_id, expectedNext.matches);
       const beforeRerun = await snapshotDatabase(copy);
       const sequencesBeforeRerun = await sequences(copy);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      await prefix(copy, 77);
       assert.deepEqual(await snapshotDatabase(copy), beforeRerun);
       assert.deepEqual(await sequences(copy), sequencesBeforeRerun, 'No-op migration must not rewind either sequence');
       await assert.rejects(copy`UPDATE series_analysis_artifacts SET source_input_checksum = ${'sha256:' + 'f'.repeat(64)}`,
@@ -262,7 +262,7 @@ for (const startIndex of [72, 76]) {
         assert.deepEqual(await schema(db), beforeSchema);
         assert.deepEqual(await sequences(db), beforeSequences);
       } finally { rmSync(folder, { recursive: true, force: true }); }
-      await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+      await prefix(db, 77);
       await assertIdentitySchema(db);
     });
   });
@@ -276,7 +276,7 @@ test('unexpected preassigned numbers stop backfill without overwriting history o
     await db`UPDATE held_events SET public_id = 42 WHERE id = '2'`;
     const before = await snapshotDatabase(db);
     const beforeSchema = await schema(db);
-    await assert.rejects(migrate(drizzle(db), { migrationsFolder: './drizzle' }),
+    await assert.rejects(prefix(db, 77),
       error => error.cause?.message === 'Public identifier backfill requires unassigned public_id columns');
     assert.deepEqual(await snapshotDatabase(db), before);
     assert.deepEqual(await schema(db), beforeSchema);
@@ -304,7 +304,7 @@ test('the normal migrator waits for an active legacy writer and numbers its comm
     let migrationFinished = false;
     try {
       const writerPid = await ready.promise;
-      migration = migrate(drizzle(migrator), { migrationsFolder: './drizzle' });
+      migration = prefix(migrator, 77);
       migration.then(() => { migrationFinished = true; }, () => { migrationFinished = true; });
       const deadline = Date.now() + 3000;
       let waiting = false;

@@ -319,7 +319,7 @@ test('owned-container guards reject wrong identities, persistence and network ta
   });
 });
 
-async function withRunnerCommands(run) {
+async function withRunnerCommands(run, repository = process.cwd()) {
   await withDirectory(async directory => {
     const headPath = join(directory, 'candidate-head');
     const logPath = join(directory, 'migrator-calls.jsonl');
@@ -345,8 +345,8 @@ async function withRunnerCommands(run) {
     process.env.PATH = directory + delimiter + previous;
     try {
       await run({
-        candidate: { sha, migrationDigest: digest(expectedMigrationHistory(join(process.cwd(), 'drizzle'))),
-          lockDigest: await fileDigest(join(process.cwd(), 'pnpm-lock.yaml')) },
+        candidate: { sha, migrationDigest: digest(expectedMigrationHistory(join(repository, 'drizzle'))),
+          lockDigest: await fileDigest(join(repository, 'pnpm-lock.yaml')) },
         changeCandidate: () => writeFile(headPath, 'f'.repeat(40), { mode: 0o600 }),
         migratorCalls: async () => (await readFile(logPath, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)),
       });
@@ -411,13 +411,31 @@ test('relay variants require EOF to release the PostgreSQL peer connection', () 
   }
 });
 
+// The superseded public-ID profile still runs its real migrator against its
+// exact historical candidate; newer tails keep their independent migration tests.
+async function withPublicIdentifierCandidate(run) {
+  const source = process.cwd();
+  return withDirectory(async repository => {
+    for (const path of ['drizzle', 'scripts', 'src', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'drizzle.config.ts']) {
+      await cp(join(source, path), join(repository, path), { recursive: true });
+    }
+    await symlink(join(source, 'node_modules'), join(repository, 'node_modules'), 'dir');
+    const path = join(repository, 'drizzle/meta/_journal.json');
+    const journal = JSON.parse(await readFile(path, 'utf8'));
+    await writeFile(path, JSON.stringify({ ...journal, entries: journal.entries.slice(0, 78) }));
+    const { runAction } = await import(join(repository, 'scripts/migration/run.mjs'));
+    return run({ repository, runAction });
+  });
+}
+
 test('explicit public identifier profile builds a fresh reference and verifies the complete runner transition', async t => {
   assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', 'public-identifiers-v1']).options.profile,
     'public-identifiers-v1');
   for (const args of [['verify', '--profile', 'public-identifiers-v1'], ['prepare', '--profile', 'unknown']]) {
     assert.throws(() => parseArguments([...args, '--key-file', '/private/key']), codeIs('INVALID_REHEARSAL_PROFILE'));
   }
-  await withDirectory(async directory => withRunnerCommands(async commands => {
+  await withPublicIdentifierCandidate(async ({ repository, runAction }) =>
+    withDirectory(async directory => withRunnerCommands(async commands => {
     const key = randomBytes(32);
     const manifest = { formatVersion: 1, runId: randomUUID(), candidate: commands.candidate,
       postgres: { id: await command('docker', ['inspect', '--format', '{{.Image}}', process.env.MOMO_DB_TEST_CONTAINER]) },
@@ -427,7 +445,7 @@ test('explicit public identifier profile builds a fresh reference and verifies t
       const sql = connect(localUrl(manifest, database));
       try {
         return await sql.begin('isolation level repeatable read read only', async transaction => ({
-          connection: await inspectConnection(transaction, process.cwd()),
+          connection: await inspectConnection(transaction, repository),
           schema: await inspectSchema(transaction), rows: await fingerprint(transaction),
         }));
       } finally { await sql.end(); }
@@ -436,7 +454,7 @@ test('explicit public identifier profile builds a fresh reference and verifies t
       await startLocal(manifest, save, { server: { ...builtinLocale, collation: 'C', ctype: 'C' } });
       await withLocalConnection(manifest, async () => {
         const folder = join(directory, 'fixture-prefix');
-        await cp(join(process.cwd(), 'drizzle'), folder, { recursive: true });
+        await cp(join(repository, 'drizzle'), folder, { recursive: true });
         const journal = JSON.parse(await readFile(join(folder, 'meta/_journal.json'), 'utf8'));
         await writeFile(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: journal.entries.slice(0, 73) }));
         const baseline = postgres(localUrl(manifest, 'momo_rehearsal_baseline'), { max: 1, prepare: false, onnotice() {} });
@@ -479,7 +497,7 @@ test('explicit public identifier profile builds a fresh reference and verifies t
         });
       });
     } finally { await cleanupLocal(manifest, save); }
-  }));
+  }, repository)));
 });
 
 test('owned database retries inspect committed work, verify schemas and prove a second migrator is a no-op', async t => {
