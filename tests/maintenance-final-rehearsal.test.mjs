@@ -76,6 +76,7 @@ test('online, imported, previous-generation, changed archive, incomplete or chan
   for (const mutate of [
     f => { f.manifest.snapshot.mode = 'online-consistent-snapshot'; },
     f => { f.manifest.snapshot.importedFrom = 'other'; },
+    f => { f.manifest.snapshotOrigin = { runId: 'previous', candidate: f.manifest.candidate.sha, manifestDigest: hash('previous') }; },
     f => { f.manifest.finalFreeze.stopEpoch++; },
     f => { f.archiveDigest = hash('other'); },
     f => { f.manifest.checks.migratorNoop = false; },

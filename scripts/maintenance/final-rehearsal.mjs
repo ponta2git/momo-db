@@ -65,7 +65,7 @@ export function buildFinalProof({ manifest, source, baseline, first, migrated, r
   check(manifest.state === 'recovery-verified' && ['sourceSnapshot', 'restore', 'migratorFirstRun', 'migratorNoop',
     'migration', 'migrationSchema', 'savedRows', 'databaseRecovery'].every(name => manifest.checks[name] === true),
     'FINAL_REHEARSAL_INCOMPLETE');
-  check(manifest.snapshot.mode === 'frozen-consistent-snapshot' && !manifest.snapshot.importedFrom &&
+  check(manifest.snapshot.mode === 'frozen-consistent-snapshot' && !manifest.snapshotOrigin && !manifest.snapshot.importedFrom &&
     manifest.snapshot.freezeDigest === databaseDigest(binding) && manifest.snapshot.archiveDigest === archiveDigest &&
     timestamp(manifest.snapshot.capturedAt) && Date.parse(manifest.snapshot.capturedAt) >= Date.parse(binding.frozenAt),
     'FINAL_COLD_SNAPSHOT_REQUIRED');
