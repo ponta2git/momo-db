@@ -52,6 +52,8 @@ pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/mani
 
 `inspect` は dump を作らず source の棚卸しを保存する任意の入口、`verify` は移行 copy の読取り比較である。未知の ledger、row-level security による不可視行、schema / 保存値差分は成功扱いにしない。dump と移行前監査は同じ exported snapshot を使い、source 接続は読取り専用とする。source 上で migration や修復は行わない。
 
+候補を更新した初期リハーサルでは、取得済みの整合 snapshot を再利用できる。新しい run directory と候補 commit を使い、`--source-config` の代わりに `--snapshot-manifest <previous-run>/manifest.json.enc` を `prepare` に渡す。同じ鍵で元 manifest / 監査を認証し、archive digest と新候補への ledger prefix を検証して暗号化 copy を作る。この経路は source DB や接続設定を開かない。以降は `snapshot` を省いて `restore` から実行する。旧 run の consumer・migration・復旧結果は引き継がず、取得時刻も更新しない。稼働中に取得した古い snapshot を、停止直後の最終 backup として使うことはできない。
+
 ローカル PostgreSQL は run 固有 label、固定 image ID、internal / isolated network、tmpfs のみを使い、port を公開しない。各 command の間だけ host の 127.0.0.1 へ一時 TCP relay を開き、所有確認した container 内の `nc` へ接続する。relay の socket・子 process は終了時に回収し、port は manifest へ保存しない。restore と cleanup は実体を毎回再確認する。任意 DB URL、保存対象 `summit-postgres`、named volume、bind mount は対象にできない。上限は container memory 3 GiB / PGDATA 2 GiB なので、複数 copy が収まらない場合は容量設計を改訂して候補を作り直す。
 
 実行中は private run lock を保持する。異常終了した lock は TTL で自動解除しない。残存 process と所有資源を確認してから管理者が解除する。migration 結果が不明なときは ledger を読み取り確認し、盲目的に再適用しない。

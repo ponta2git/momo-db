@@ -7,6 +7,7 @@ import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
+import { importSnapshot } from './snapshot.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
   writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
@@ -20,7 +21,7 @@ const recoveryName = 'momo_rehearsal_recovery';
 export function parseArguments(args) {
   const [action, ...rest] = args;
   const options = {};
-  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest']);
+  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest', 'snapshot-manifest']);
   for (let index = 0; index < rest.length; index += 2) {
     const name = rest[index].replace(/^--/, '');
     requireCondition(rest[index].startsWith('--') && allowed.has(name) && !(name in options) &&
@@ -29,6 +30,7 @@ export function parseArguments(args) {
   }
   requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
   requireCondition(isAbsolute(options['key-file'] ?? ''), 'ABSOLUTE_KEY_PATH_REQUIRED');
+  requireCondition(!options['snapshot-manifest'] || (action === 'prepare' && !options['source-config']), 'SNAPSHOT_IMPORT_ONLY_FOR_PREPARE');
   return { action, options };
 }
 
@@ -290,18 +292,27 @@ export async function main(args) {
   let directory, path, manifest;
   if (action === 'prepare') {
     const fixed = await candidate();
-    requireCondition(isAbsolute(options['source-config'] ?? ''), 'EXPLICIT_SOURCE_CONFIGURATION_REQUIRED');
-    const source = await readJson(options['source-config'], key);
-    const identity = databaseLocation(source.sourceUrl).identity;
+    let source;
+    if (!options['snapshot-manifest']) {
+      requireCondition(isAbsolute(options['source-config'] ?? ''), 'EXPLICIT_SOURCE_CONFIGURATION_REQUIRED');
+      source = { configuration: options['source-config'],
+        identity: databaseLocation((await readJson(options['source-config'], key)).sourceUrl).identity };
+    }
     const postgres = await resolvePostgresImage(options['postgres-image'] ?? 'postgres:18-alpine');
     requireCondition(digest(await candidate()) === digest(fixed), 'CANDIDATE_CHANGED');
     directory = await createWorkspace(options['run-dir'], repository);
     path = resolve(directory, 'manifest.json.enc');
     manifest = { formatVersion: 1, runId: randomUUID(), candidate: fixed, postgres,
       createdAt: new Date().toISOString(), state: 'prepared',
-      source: { configuration: options['source-config'], identity }, local: null, checks: {}, durationsMs: {},
+      source, local: null, checks: {}, durationsMs: {},
       incomplete: ['column-mapping-and-consumer-contracts', 'application-role-behavior', 'consumer-smoke-and-connection-switch',
         'final-continuous-freeze-snapshot', 'production-approval-and-cutover'] };
+    if (options['snapshot-manifest']) {
+      Object.assign(manifest, await importSnapshot(options['snapshot-manifest'], directory, key,
+        expectedMigrationHistory(`${repository}/drizzle`)));
+      manifest.state = 'snapshotted';
+      manifest.checks.sourceSnapshot = true;
+    }
     await assertCandidate(manifest);
     await writeJson(path, manifest, key);
   } else {
