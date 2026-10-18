@@ -102,7 +102,11 @@ pnpm db:migrate
 
 停止切替でも既存 migration の不変性、schema / custom SQL の分離、必須 gate、本番 approval / preflight は維持する。再開前に戻す場合は DB と consumer を整合する組合せへ復元し、再開後は新規データを守る forward fix を原則とする。
 
-master push では CI が build と `drizzle-kit check`、通知契約と既存 DB 保全のテストを行う。`drizzle/` に変更がある場合は protected environment `production-db` で対象 commit の承認を待ち、承認後に接続 preflight と migration を直列実行する。通常運用で承認や preflight を迂回しない。
+master push では CI が build と `drizzle-kit check`、通知契約と既存 DB 保全のテストを行い、成功した候補の SHA・run / attempt・migration / lockfile / config digest を artifact に保存する。`drizzle/` に変更があり、永続 maintenance 記録が通常適用を許可する場合は protected environment `production-db` で対象 commit の承認を待つ。`CI Actions` の実行 job は停止状態を再確認し、接続 preflight、正規 migrator、全 migration 履歴の確認を直列実行する。記録が未初期化の場合も適用しないため、この制御を含む準備 release 前に、[停止制御の導入条件](maintenance-control.md#保存と権限)を満たす。
+
+停止切替では、固定した `cutover/<id>` ref から証拠付き `workflow_dispatch` を使う。成功済み master push の同一候補・producer attempt・artifact を照合し、最終リハーサルの receipt を実際の実行 run / attempt に結び付けて承認前に保存する。operator が同じ receipt の許可を登録した後、既存の `production-db` / `CI Actions` 承認を受ける。適用直前には停止世代、接続先、正確な baseline ledger、pending tail、全保存値・sequence・schema を再照合し、同じ正規 migrator だけを実行する。結果不明から再実行する場合、target の全証拠が一致すれば読取り検証だけで終え、未知の状態には SQL を適用しない。証拠の形式と段階は[停止制御](maintenance-control.md#github-承認との引継ぎ)を参照する。
+
+通常運用・停止切替とも承認や preflight を迂回しない。停止期間中に通常 master の古い workflow を再実行しても mutation できないよう、既存 environment の許可 ref と既承認 job の停止を実環境で確認する。コード上の guard だけをこの確認の代わりにしない。
 
 ### CI を復旧できない場合の緊急適用
 
