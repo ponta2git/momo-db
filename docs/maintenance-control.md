@@ -1,6 +1,6 @@
 # 移行の停止状態と承認証拠
 
-`pnpm maintenance:control` は、移行の停止世代・固定候補・実行許可を GitHub の専用 Git ref に保存する。対象 DB の restore や CLI 終了で状態を失わず、期限切れを通常運用の再開とは扱わない。これは deploy の入口と証拠を照合する制御であり、API・worker・Summit の drain や永続起動設定を代行するものではない。
+`pnpm maintenance:control` は、移行の停止世代・固定候補・実行許可を GitHub の専用 Git ref に保存する。対象 DB の restore や CLI 終了で状態を失わず、期限切れを通常運用の再開とは扱わない。API・worker・Summit の段階的な drain と永続起動設定には、同じ記録を照合する `pnpm maintenance:freeze` を使う。
 
 ## 保存と権限
 
@@ -39,3 +39,59 @@ Release 発行は RESUMED の証拠を使う専用継続入口で行う。`close
 v1 の target は、`["momo-database-target-v1", host, port, actualDatabase]` の compact JSON / UTF-8 を SHA-256 にする。host は lowercase、`.neon.tech` 配下だけ先頭 label の末尾 `-pooler` を除き、port は既定 `5432` の十進文字列とする。ledger は `momo-drizzle-ledger-v1\n` に各行の lowercase SHA-256、`:`、timestamp の十進文字列、`\n` を順に連結して hash する。role / password / 設定 URL の database path は含めない。これは設定先と実接続した DB の照合であり、role 権限や全保存値の一致は別 gate のままである。
 
 全体の実行順・停止枠・復旧条件は[統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)を参照する。
+
+## 全 writer の停止
+
+`maintenance:freeze` は、旧 schema に対応した準備 release が全 consumer に配備され、認証付き process drain と実接続・ledger の frozen probe が使えることを前提とする。本番で実行する前に、通常の承認経路による準備 release、運用案内、停止枠、復旧 image / 設定、外部 writer の停止を確定する。ローカルのテスト成功だけではこの前提を満たさない。
+
+### 非公開入力
+
+接続 URL は所有者だけが読める別ファイルから読み、argument や標準出力に含めない。key は 32-byte の mode `0600` ファイル、実行 directory は repository 外の mode `0700` とする。計画、machine の全設定・boot identity、secret の名前・digest、途中状態と最終証拠は AES-GCM で保存する。GitHub に保存するのは証拠全体の digest だけである。
+
+`prepare` の JSON 入力は次の field を持つ。実値を含む入力・証拠は公開 repository / PR に置かない。
+
+| field | 内容 |
+| --- | --- |
+| `formatVersion` | `1` |
+| `targets` | 全 machine の `{role, app, id, image, configDigest}`。role は `api` / `worker` / `summit`、image は `registry/repository@sha256:…`、configDigest は `control.mjs` の canonical JSON digest |
+| `database` | 準備 release が使う旧 schema の migration 接続 proof。全 consumer が同じ target / ledger を使う |
+| `approvals` | `maintenance:control capture-approvals` の保存結果 |
+| `deadline` / `recoveryReserveMs` | UTC の終了期限と、最後まで消費しない正の復旧余裕。各 mutation はさらに 120 秒の実行余裕を必要とする |
+| `externalEvidence` | 下記の operator 証拠 |
+
+`externalEvidence` は `formatVersion: 1`、`operator`、`cutoverId`、`stopEpoch`、固定 `candidates`、`deploymentFreezeDigest`、`observedAt`、`validUntil`、`checks` を持つ。`deploymentFreezeDigest` は現在の `verify-freeze` の出力 digest と一致させる。`checks` は [全 writer の必須区分](../scripts/maintenance/freeze-contract.mjs)ごとの `{kind, evidenceDigest}` を一つずつ含め、元の確認記録を非公開で保持する。
+
+GitHub の migration / deploy / rollback / analysis / publish、既承認 job、旧 workflow の拒否実証、Summit の手動配備・CLI・seed、手動 SQL / provider console、臨時 script / 別 machine、外部 credential を対象とする。特に **environment 保護がなかった旧 publisher** の rerun も含める。停止していない入口を、現行 YAML に guard があることや `success: true` だけで確認済みにしない。operator 証拠はその確認を参照するもので、digest 自体が実環境の停止を証明するわけではない。
+
+`maintenance:control` で候補を固定し、現在の GitHub barrier digest を付けて `DRAINING` へ進めてから入力を作る。`prepare` は source DB / provider / process の読取り検査だけを行う。対象 app に一覧外の machine がある、既に drain されている、他の secret が staged / partial / unknown、app secret を無視する起動設定である場合は停止する。DB 検査用 role には全対象 table の SELECT と全 session の可視性（`pg_read_all_stats` 相当）が必要で、RLS による絞込みを許可しない。
+
+```bash
+pnpm maintenance:freeze create-key /private/path/freeze.key
+pnpm maintenance:freeze prepare --input /private/path/input.json \
+  --source-url-file /private/path/direct-url --run /private/path/freeze-run \
+  --key /private/path/freeze.key
+pnpm maintenance:freeze status --run /private/path/freeze-run --key /private/path/freeze.key
+```
+
+### 停止順序と失敗時
+
+本番停止への承認が揃った同じ計画に対して `stop` を実行する。
+
+```bash
+pnpm maintenance:freeze stop --run /private/path/freeze-run --key /private/path/freeze.key
+pnpm maintenance:freeze verify --run /private/path/freeze-run --key /private/path/freeze.key
+```
+
+1. 全 app の次回起動用 `MOMO_MAINTENANCE_MODE=frozen` を secret として stage する。既存 process を再起動せず、無関係な secret の変更も許可しない。
+2. API と Summit の admission を閉じる。既存 OCR admission、分析の利用者要求・campaign、result 通知と送信中処理が通常経路で収束するのを待つ。業務期限の延長、通知設定変更、queue の取消しはしない。将来の attendance PENDING は保存できる。
+3. worker の admission と子 process 回収を確認し、API / worker の全 writer、最後に Summit の通知受信・送信を drain する。DB の未完了処理、active transaction と prepared transaction が残れば進まない。
+4. 全 machine を固定 image と元の全設定に `frozen` だけを追加した設定へ切り替える。lease と `current_version` で競合を拒否する。各 process の frozen readiness、migration 接続、全 ledger を照合する。
+5. 非公開の最終証拠を書き終えた後、CAS で `FROZEN` と `writersStopped` digest を記録する。
+
+[Fly の running machine 更新](https://docs.fly.io/machines/api/machines-resource#update-a-machine)は reboot を伴うため、全 drain より前の設定更新には使わない。[staged secret](https://docs.fly.io/apps/secrets)を先に保存する。アプリ内で同じ normal 環境を使って子を再起動する supervisor を準備 release に追加した場合、この停止契約も再検証する。
+
+各 mutation は先に非公開 journal に記録し、provider / GitHub の読取り後、実行直前に停止世代を再確認する。失敗・timeout・設定変更・boot 変更では自動再開せず、確認可能なら停止世代を `INVALIDATED` にする。`verify` で停止継続を確認できない場合も証拠を失効させる。control store 自体が利用不能なら、それ以降の作業を許可しない。
+
+CLI 強制終了、途中更新、結果不明の後は同じ run の `stop` を再実行できない。残る lock / journal、実 machine / secret / process / DB を照合し、必要な `invalidate` と新世代の証拠を揃える。停止を解除するには、[復旧または通常再開の境界](#世代と段階)を先に記録する。`stop` の失敗処理が normal secret を戻すことはない。
+
+この証拠は停止完了の記録であり、最終 backup の代わりにはならない。停止後に取得した backup の復元・移行・比較・consumer smoke・別 DB への復旧を行い、同じ停止世代へ結び付けてから `VERIFIED` へ進める。
