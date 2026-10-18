@@ -1,1 +1,1 @@
-{"completed":null,"cutover":null,"epoch":0,"formatVersion":1,"operator":"ponta2git","stateVersion":1,"updatedAt":"2026-10-18T05:37:14.077Z"}
+{"completed":null,"cutover":{"candidates":null,"evidence":{},"id":"canonical-20261018-1","invalidatedReason":null,"permits":[],"phase":"PREPARING","stopEpoch":1},"epoch":1,"formatVersion":1,"operator":"ponta2git","stateVersion":2,"updatedAt":"2026-10-18T06:59:56.034Z"}
