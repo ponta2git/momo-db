@@ -18,7 +18,7 @@ export const checksum = 'sha256:' + createHash('sha256').update(payload).digest(
 
 // Every converted column has a non-null representative. Opaque values include
 // identifiers and precise JSON numbers deliberately excluded from conversion.
-export async function seedCanonicalSource(db) {
+export async function seedCanonicalSource(db, { beforeFencingExpansion = false } = {}) {
   await resetFixtures(db);
   for (const [index, id] of ['7', 'é', 'e\u0301', '{00112233-4455-6677-8899-AABBCCDDEEFF}',
     '00000000-0000-0000-0000-000000000000', 'ffffffff-ffff-ffff-ffff-ffffffffffff'].entries()) {
@@ -105,12 +105,14 @@ export async function seedCanonicalSource(db) {
     change_kind, requested_by, saved_by, published_at)
     VALUES (${legacy.radarOperation}, ${legacy.title}, ${legacy.candidate}, ${legacy.previousBasis}, ${legacy.basis},
       'manual', ${legacy.account}, ${legacy.account}, '2026-01-02T00:00:00.123456Z')`;
+  const fencingColumn = db.unsafe(beforeFencingExpansion ? '' : ', fencing_counter');
+  const fencingValue = db.unsafe(beforeFencingExpansion ? '' : ', 9007199254740993');
   await db`INSERT INTO series_analysis_jobs(id, work_kind, radar_operation_id, radar_basis_id, radar_generation,
     game_title_id, input_revision, algorithm_version, artifact_schema_version, validation_contract_id, trigger,
-    status, lease_owner, lease_attempt_id, lease_fencing_token, fencing_counter, lease_expires_at, lease_validation_contract_id)
+    status, lease_owner, lease_attempt_id, lease_fencing_token${fencingColumn}, lease_expires_at, lease_validation_contract_id)
     VALUES (${legacy.job}, 'radar_prepare', ${legacy.radarOperation}, ${legacy.basis}, 2, ${legacy.title},
       9007199254740993, 'series-analysis-v6', 5, ${validationContract}, 'manual', 'running', 'owner:unchanged',
-      ${legacy.attempt}, 9007199254740993, 9007199254740993, '2030-01-01', ${validationContract})`;
+      ${legacy.attempt}, 9007199254740993${fencingValue}, '2030-01-01', ${validationContract})`;
   await db`INSERT INTO series_analysis_job_attempts(id, job_id, attempt_no, owner, fencing_token, input_revision,
     algorithm_version, artifact_schema_version, validation_contract_id, effective_config_version, calculation_timeout_milliseconds)
     VALUES (${legacy.attempt}, ${legacy.job}, 1, 'owner:unchanged', 9007199254740993, 9007199254740993,
