@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { compareDatabaseLocale } from './database.mjs';
 import { digest, requireCondition } from './files.mjs';
-import { schemaStructure } from './run.mjs';
+import { schemaStructure } from './schema.mjs';
 
 export const PUBLIC_IDENTIFIER_PROFILE = 'public-identifiers-v1';
 export const PUBLIC_IDENTIFIER_SOURCE_LENGTH = 73;
@@ -21,6 +21,11 @@ const targetLength = PUBLIC_IDENTIFIER_SOURCE_LENGTH + PUBLIC_IDENTIFIER_TAIL.le
 const rowAlgorithm = 'sha256-row-multiset-v2';
 const key = value => JSON.stringify([value.schema, value.name]);
 const ledgerTable = { schema: 'drizzle', name: '__drizzle_migrations' };
+// Reviewed source-only catalog viewer. Preserve its exact definition and every
+// structural attribute; this is not an exclusion from before/after comparison.
+const retainedFunctions = Object.freeze([Object.freeze({ schema: 'public', name: 'show_db_tree', arguments: '',
+  digest: '9a54f3362bfa1de93ad2f316e41e8374fe7fe6672c1dfe2706f484d737bc9215' })]);
+const functionKey = value => JSON.stringify([value.schema, value.name, value.arguments]);
 const identifier = (sql, name) => sql.unsafe('"' + name.replaceAll('"', '""') + '"');
 const relation = (sql, table) => sql`${identifier(sql, table.schema)}.${identifier(sql, table.name)}`;
 const equal = (left, right) => digest(left) === digest(right);
@@ -118,24 +123,53 @@ function validateProfile(profile) {
   requireCondition(profile?.formatVersion === 1 && profile.profile === PUBLIC_IDENTIFIER_PROFILE
     && typeof profile.profileDigest === 'string' && digest(profileBody(profile)) === profile.profileDigest, 'PUBLIC_IDENTIFIER_PROFILE_CHANGED');
   validateHistory(profile.history);
+  for (const retained of profile.retainedFunctions ?? []) {
+    requireCondition(retainedFunctions.some(expected => equal(retained, expected)), 'PUBLIC_IDENTIFIER_PROFILE_CHANGED');
+    for (const schema of [profile.schemaBefore, profile.schemaAfter]) {
+      const functions = schema.functions.filter(value => functionKey(value) === functionKey(retained));
+      requireCondition(functions.length === 1 && digest(functions[0]) === retained.digest, 'PUBLIC_IDENTIFIER_RETAINED_FUNCTION_CHANGED');
+    }
+  }
   requireCondition(equal(assertReferenceShape(profile.schemaBefore, profile.schemaAfter), profile.ledgerSequence), 'PUBLIC_IDENTIFIER_PROFILE_CHANGED');
+}
+
+function retainReviewedFunctions(schemaBefore, schemaAfter, sourceSchema) {
+  if (!sourceSchema) return { schemaBefore, schemaAfter, retainedFunctions: [] };
+  const source = schemaStructure(sourceSchema);
+  const managed = new Set(schemaBefore.functions.map(functionKey));
+  const extras = source.functions.filter(value => !managed.has(functionKey(value)));
+  const retained = extras.map(value => {
+    const expected = retainedFunctions.find(candidate => functionKey(candidate) === functionKey(value));
+    requireCondition(expected && digest(value) === expected.digest, 'PUBLIC_IDENTIFIER_UNREVIEWED_SOURCE_FUNCTION');
+    return expected;
+  });
+  requireCondition(equal({ ...source, functions: source.functions.filter(value => managed.has(functionKey(value))) }, schemaBefore),
+    'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
+  const functions = [...schemaAfter.functions, ...extras].sort((left, right) => {
+    for (const field of ['schema', 'name', 'arguments']) {
+      const order = Buffer.compare(Buffer.from(left[field]), Buffer.from(right[field]));
+      if (order) return order;
+    }
+    return 0;
+  });
+  return { schemaBefore: source, schemaAfter: { ...schemaAfter, functions }, retainedFunctions: retained };
 }
 
 /** Both references must be actual fresh-DB audits made with the normal migrator:
  * first the fixed 0072 prefix, then the full fixed history. No snapshot-to-DDL
  * reconstruction or schema-wide exclusions are accepted as the target model. */
-export function createPublicIdentifierProfile({ history, referenceBefore, referenceAfter }) {
+export function createPublicIdentifierProfile({ history, referenceBefore, referenceAfter, sourceSchema }) {
   validateHistory(history);
   assertLedger(referenceBefore, history.entries.slice(0, PUBLIC_IDENTIFIER_SOURCE_LENGTH), 'PUBLIC_IDENTIFIER_REFERENCE_PREFIX_DIFFERS');
   assertLedger(referenceAfter, history.entries, 'PUBLIC_IDENTIFIER_REFERENCE_TARGET_DIFFERS');
   compareDatabaseLocale(referenceBefore.connection.server, referenceAfter.connection.server);
   assertFreshEmptyTargets(referenceBefore);
   assertFreshEmptyTargets(referenceAfter);
-  const schemaBefore = schemaStructure(referenceBefore.schema);
-  const schemaAfter = schemaStructure(referenceAfter.schema);
+  const { schemaBefore, schemaAfter, retainedFunctions } = retainReviewedFunctions(
+    schemaStructure(referenceBefore.schema), schemaStructure(referenceAfter.schema), sourceSchema);
   const ledgerSequence = assertReferenceShape(schemaBefore, schemaAfter);
   const body = { formatVersion: 1, profile: PUBLIC_IDENTIFIER_PROFILE, history: structuredClone(history),
-    referenceServer: structuredClone(referenceAfter.connection.server), schemaBefore, schemaAfter, ledgerSequence };
+    referenceServer: structuredClone(referenceAfter.connection.server), schemaBefore, schemaAfter, ledgerSequence, retainedFunctions };
   return { ...body, profileDigest: digest(body) };
 }
 
