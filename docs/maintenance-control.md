@@ -32,4 +32,10 @@ receipt の `evidence` は source identity、baseline / target ledger、pending 
 
 Release 発行は RESUMED の証拠を使う専用継続入口で行う。`close` は公開結果の digest を完了記録へ保存してから通常 deploy を開く。復旧経路は `close-recovery` で旧構成の安定確認を保存する。過去の各状態は Git 履歴に残る。
 
+## 実接続と復旧先の照合
+
+各 consumer の frozen probe は `database: { formatVersion: 1, targetFingerprint, ledgerFingerprint }` を返す。実接続の `current_database()` と、同じ read-only transaction 内の `drizzle.__drizzle_migrations ORDER BY id` 全行を使う。空・不正・不可視な ledger は失敗とする。接続設定のファイルを差し替えただけでは復旧完了とせず、API・worker・Summit・migration 接続の全てを期待する証拠と照合する。
+
+v1 の target は、`["momo-database-target-v1", host, port, actualDatabase]` の compact JSON / UTF-8 を SHA-256 にする。host は lowercase、`.neon.tech` 配下だけ先頭 label の末尾 `-pooler` を除き、port は既定 `5432` の十進文字列とする。ledger は `momo-drizzle-ledger-v1\n` に各行の lowercase SHA-256、`:`、timestamp の十進文字列、`\n` を順に連結して hash する。role / password / 設定 URL の database path は含めない。これは設定先と実接続した DB の照合であり、role 権限や全保存値の一致は別 gate のままである。
+
 全体の実行順・停止枠・復旧条件は[統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)を参照する。

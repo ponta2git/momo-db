@@ -15,6 +15,7 @@ import { schemaStructure } from '../scripts/migration/run.mjs';
 import { digest as databaseDigest } from '../scripts/migration/files.mjs';
 import { digest } from '../scripts/maintenance/control.mjs';
 import { executeDatabase, databaseSchemaDigest } from '../scripts/maintenance/apply-database.mjs';
+import { inspectConnectionProof, connectionProof } from '../scripts/maintenance/connection-proof.mjs';
 import { expectedMigrationHistory, verifyMigrationHistory } from '../scripts/check-migration-history.mjs';
 
 async function withDatabase(run) {
@@ -56,6 +57,11 @@ test('real PostgreSQL apply rejects changed saved values and recovers a committe
         INSERT INTO public.maintenance_fixture VALUES
         (9007199254740993, '{"number":9007199254740993}', 12345678901234567890.000000001, decode('00ff80','hex'));`);
       const before = await capture(url);
+      const proofConnection = connect(url);
+      try {
+        const connection = await proofConnection.begin('isolation level repeatable read read only', tx => inspectConnectionProof(tx, url));
+        assert.deepEqual(connection, connectionProof(url, name, before.ledger));
+      } finally { await proofConnection.end(); }
       const archive = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', name]);
       const target = await withDatabase(async (_preview, previewName, previewUrl) => {
         docker(['pg_restore', '-U', username, '--exit-on-error', '--single-transaction', '--no-owner', '--no-acl', '-d', previewName], archive);
