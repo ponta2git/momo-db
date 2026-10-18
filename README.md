@@ -2,7 +2,7 @@
 
 Discord Bot プロジェクト群（summit / momo-result）が共有する PostgreSQL スキーマ定義とマイグレーション管理リポジトリ。
 
-エージェント向けの作業入口は [AGENTS.md](./AGENTS.md)。DB 変更前に [正規の開発手順](./docs/development.md) を全文参照する。Discord 通知の保存・競合・consumer 接続は [共有通知契約](./docs/discord-notifications.md)、開催・試合の `public_id` は [公開番号契約](./docs/public-identifiers.md)、分析ジョブの永続 fence は [counter 契約](./docs/analysis-fencing-counter.md)、設計判断の背景は [ADR](./docs/adr/README.md) を参照する。
+エージェント向けの作業入口は [AGENTS.md](./AGENTS.md)。DB 変更前に [正規の開発手順](./docs/development.md) を全文参照する。Discord 通知の保存・競合・consumer 接続は [共有通知契約](./docs/discord-notifications.md)、開催・試合の `public_id` は [公開番号契約](./docs/public-identifiers.md)、分析ジョブの永続 fence は [counter 契約](./docs/analysis-fencing-counter.md)、UUID 切替の target schema は [canonical identity 契約](./docs/canonical-identities.md)、設計判断の背景は [ADR](./docs/adr/README.md) を参照する。
 
 ## CI / CD
 
