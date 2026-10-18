@@ -42,6 +42,8 @@ v1 の target は、`["momo-database-target-v1", host, port, actualDatabase]` �
 
 ## 全 writer の停止
 
+旧 schema の `worker_execution_slots` も収束判定に含める。P7 後に table が存在しない場合だけ、固定した retirement profile の全 SQL hash・timestamp・順序が DB の全 ledger と一致することを条件に slot を収束済みと扱う。途中履歴、改変履歴、未知の table 欠落を無視しない。
+
 `maintenance:freeze` は、旧 schema に対応した準備 release が全 consumer に配備され、認証付き process drain と実接続・ledger の frozen probe が使えることを前提とする。本番で実行する前に、通常の承認経路による準備 release、運用案内、停止枠、復旧 image / 設定、外部 writer の停止を確定する。ローカルのテスト成功だけではこの前提を満たさない。
 
 ### 非公開入力

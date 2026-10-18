@@ -4,6 +4,7 @@ import test from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient } from './notification-fixtures.mjs';
+import { migrateThrough } from './migration-prefix.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 import { connect, fingerprint } from '../scripts/migration/database.mjs';
 import { inspectConvergence, isConverged, readConvergence } from '../scripts/maintenance/freeze-database.mjs';
@@ -23,7 +24,7 @@ test('real old-schema stop inspection is read-only, retains future attendance, a
     finally { await client.end(); }
   };
   try {
-    await migrate(drizzle(sql), { migrationsFolder: './drizzle' });
+    await migrateThrough(sql, 93);
     await sql`INSERT INTO discord_notifications(id, family, kind, dedupe_key, payload, payload_hash, next_attempt_at)
       VALUES ('future', 'attendance', 'send_message', 'future', '{}'::jsonb, ${'a'.repeat(64)}, now() + interval '1 year')`;
     const baseline = await saved();
@@ -78,4 +79,33 @@ test('real old-schema stop inspection is read-only, retains future attendance, a
     }
     await sql.end(); docker(['dropdb', '-U', username, name]);
   }
+});
+
+test('an absent global slot is accepted only with the exact complete retirement ledger', async () => {
+  const name = 'momo_db_test_freeze_retired_' + randomUUID().replaceAll('-', '').slice(0, 12);
+  docker(['createdb', '-U', username, name]);
+  const sql = createTestClient(name);
+  const url = new URL(`postgresql://127.0.0.1:${process.env.MOMO_DB_TEST_PORT ?? 5432}/${name}`);
+  url.username = username;
+  if (process.env.MOMO_DB_TEST_PASSWORD) url.password = process.env.MOMO_DB_TEST_PASSWORD;
+  try {
+    await migrate(drizzle(sql), { migrationsFolder: './drizzle' });
+    const [slot] = await sql`SELECT to_regclass('public.worker_execution_slots') AS name`;
+    assert.equal(slot.name, null);
+    const before = await sql.begin('isolation level repeatable read read only', fingerprint);
+    const report = await readConvergence(url.toString());
+    assert.equal(report.pending.executionSlot, '0');
+    assert.equal(isConverged(report, true), true);
+    assert.deepEqual(await sql.begin('isolation level repeatable read read only', fingerprint), before);
+    const [last] = await sql`SELECT id, hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations ORDER BY id DESC LIMIT 1`;
+    await sql`UPDATE drizzle.__drizzle_migrations SET hash = ${'f'.repeat(64)} WHERE id = ${last.id}`;
+    await assert.rejects(readConvergence(url.toString()), { code: 'RETIRED_SLOT_HISTORY_REQUIRED' });
+    await sql`UPDATE drizzle.__drizzle_migrations SET hash = ${last.hash}, created_at = ${String(BigInt(last.created_at) + 1n)} WHERE id = ${last.id}`;
+    await assert.rejects(readConvergence(url.toString()), { code: 'RETIRED_SLOT_HISTORY_REQUIRED' });
+    await sql`UPDATE drizzle.__drizzle_migrations SET created_at = ${last.created_at} WHERE id = ${last.id}`;
+    await sql`DELETE FROM drizzle.__drizzle_migrations WHERE id = ${last.id}`;
+    await assert.rejects(readConvergence(url.toString()), { code: 'RETIRED_SLOT_HISTORY_REQUIRED' });
+    await sql`DELETE FROM drizzle.__drizzle_migrations WHERE id = (SELECT max(id) FROM drizzle.__drizzle_migrations)`;
+    await assert.rejects(readConvergence(url.toString()), { code: 'RETIRED_SLOT_HISTORY_REQUIRED' });
+  } finally { await sql.end(); docker(['dropdb', '-U', username, name]); }
 });
