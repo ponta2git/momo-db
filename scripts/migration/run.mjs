@@ -7,6 +7,7 @@ import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
+import { applicationOwnerPlan, mapApplicationOwner } from './application-role.mjs';
 import { importSnapshot } from './snapshot.mjs';
 import { createMigrationReferences } from './reference.mjs';
 import { schemaStructure } from './schema.mjs';
@@ -30,17 +31,20 @@ const recoveryName = 'momo_rehearsal_recovery';
 export function parseArguments(args) {
   const [action, ...rest] = args;
   const options = {};
-  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest', 'snapshot-manifest', 'profile']);
+  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest', 'snapshot-manifest', 'profile', 'role-audit', 'copy']);
   for (let index = 0; index < rest.length; index += 2) {
     const name = rest[index].replace(/^--/, '');
     requireCondition(rest[index].startsWith('--') && allowed.has(name) && !(name in options) &&
       rest[index + 1] && !rest[index + 1].startsWith('--'), 'INVALID_ARGUMENTS');
     options[name] = rest[index + 1];
   }
-  requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
+  requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'application-role', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
   requireCondition(isAbsolute(options['key-file'] ?? ''), 'ABSOLUTE_KEY_PATH_REQUIRED');
   requireCondition(!options['snapshot-manifest'] || (action === 'prepare' && !options['source-config']), 'SNAPSHOT_IMPORT_ONLY_FOR_PREPARE');
   requireCondition(!options.profile || (action === 'prepare' && ['preserve-v1', PUBLIC_IDENTIFIER_PROFILE, CANONICAL_IDENTITY_PROFILE, WORKER_SLOT_RETIREMENT_PROFILE].includes(options.profile)), 'INVALID_REHEARSAL_PROFILE');
+  if (action === 'application-role') requireCondition(isAbsolute(options['role-audit'] ?? '') &&
+    ['smoke', 'recovery'].includes(options.copy), 'APPLICATION_ROLE_INPUT_REQUIRED');
+  else requireCondition(!options['role-audit'] && !options.copy, 'INVALID_ARGUMENTS');
   return { action, options };
 }
 
@@ -109,13 +113,20 @@ function summary(manifest) {
     durationsMs: manifest.durationsMs };
 }
 
-export async function runAction(action, manifest, directory, key, save, { signal } = {}) {
+export async function runAction(action, manifest, directory, key, save, { signal, freezeGuard, roleAudit, applicationCopy } = {}) {
   const report = name => resolve(directory, `${name}.json.enc`);
   const archive = resolve(directory, 'source.dump.enc');
+  let sourceSnapshotOpen = false;
   let sourceTransition;
   const beforeMutation = async () => {
     requireCondition(!signal?.aborted, 'REHEARSAL_INTERRUPTED');
     await assertCandidate(manifest);
+    if (manifest.finalFreeze) {
+      requireCondition(typeof freezeGuard === 'function', 'FINAL_REHEARSAL_REQUIRES_LIVE_FREEZE_GUARD');
+      // The source inspector requires zero other transactions. The one
+      // exported read-only snapshot is bracketed by full continuity checks.
+      if (!sourceSnapshotOpen) requireCondition(digest(await freezeGuard()) === digest(manifest.finalFreeze), 'FINAL_FREEZE_CHANGED');
+    }
   };
   const readReport = async (name, expectedDigest) => {
     const value = await readJson(report(name), key);
@@ -171,6 +182,29 @@ export async function runAction(action, manifest, directory, key, save, { signal
   if (action === 'cleanup') { await cleanupLocal(manifest, save); manifest.state = 'cleaned'; return; }
   await beforeMutation();
 
+  if (action === 'application-role') {
+    requireCondition(['verified', 'recovery-verified'].includes(manifest.state) && manifest.checks.migration &&
+      ['smoke', 'recovery'].includes(applicationCopy), 'VERIFIED_APPLICATION_COPY_REQUIRED');
+    if (applicationCopy === 'recovery') requireCondition(manifest.checks.databaseRecovery, 'VERIFIED_RECOVERY_REQUIRED');
+    const source = await readReport('source', manifest.snapshot?.auditDigest);
+    const plan = applicationOwnerPlan(source, roleAudit);
+    const expected = applicationCopy === 'smoke' ? await readReport('migrated', manifest.migratedDigest) :
+      await readReport('recovered', manifest.recoveredDigest);
+    return withLocalConnection(manifest, async () => {
+      const database = applicationCopy === 'smoke' ? 'momo_rehearsal_smoke' : recoveryName;
+      if (applicationCopy === 'smoke' && await databaseState(manifest, database) === 'missing') {
+        await createDatabase(manifest, database, migrationName, { beforeMutation });
+      }
+      const proof = await mapApplicationOwner(manifest, database, plan, { beforeMutation, expectedRows: expected.rows });
+      const proofDigest = await writeReport(`application-role-${applicationCopy}`, proof);
+      manifest.applicationRoles ??= {};
+      manifest.applicationRoles[applicationCopy] = { proofDigest, sourceAuditDigest: plan.sourceAuditDigest };
+      // Mapping proves the login and effective grants, not consumer behaviour.
+      // Keep application-role-behavior incomplete until the business gates run.
+      manifest.checks.applicationRoleMapping = true;
+    }, { signal });
+  }
+
   if (action === 'inspect') {
     const inspection = await withDatabase(await sourceUrl(manifest, key), sql => audit(sql, { identifiers: true, sequences: false }));
     await writeReport('inspection', inspection);
@@ -188,10 +222,11 @@ export async function runAction(action, manifest, directory, key, save, { signal
     try {
       const before = await inspectConnection(sql, repository);
       await sql.begin(isolation, async transaction => {
+        sourceSnapshotOpen = true;
         const [{ snapshot }] = await transaction`SELECT pg_export_snapshot() AS snapshot`;
         requireCondition(/^[0-9A-Fa-f-]+$/.test(snapshot), 'INVALID_EXPORTED_SNAPSHOT');
         // Audit before applying any migration, in the exact dump snapshot.
-        const baseline = await audit(transaction, { identifiers: true, sequences: false });
+        const baseline = await audit(transaction, { identifiers: true, sequences: Boolean(manifest.finalFreeze) });
         requireCondition(before.ledgerDigest === baseline.connection.ledgerDigest, 'SOURCE_LEDGER_CHANGED');
         // Keep the completed inventory even if the subsequent dump fails. It
         // remains provisional until the archive and both ledger checks pass.
@@ -209,7 +244,14 @@ export async function runAction(action, manifest, directory, key, save, { signal
         try { await Promise.all([encryptStream(child.stdout, archive, key), completed]); }
         catch (error) { child.kill('SIGKILL'); await completed.catch(() => {}); throw error; }
         await beforeMutation();
-        manifest.snapshot = { mode: 'online-consistent-snapshot', capturedAt: new Date().toISOString(),
+        if (manifest.finalFreeze) {
+          // Sequence state is not MVCC. A stopped source must match in full,
+          // including sequences, after the dump as well as at its snapshot.
+          const current = await withDatabase(url, connection => audit(connection));
+          compareRestore(baseline, current, { sequences: true });
+        }
+        manifest.snapshot = { mode: manifest.finalFreeze ? 'frozen-consistent-snapshot' : 'online-consistent-snapshot',
+          ...(manifest.finalFreeze ? { freezeDigest: digest(manifest.finalFreeze) } : {}), capturedAt: new Date().toISOString(),
           archiveDigest: await fileDigest(archive), auditDigest: digest(baseline),
           bytes: (await stat(archive)).size, tableCount: baseline.rows.tables.length,
           ledgerCount: baseline.connection.ledger.length, pendingDigest: digest(baseline.connection.pending) };
@@ -218,7 +260,8 @@ export async function runAction(action, manifest, directory, key, save, { signal
       requireCondition(after.ledgerDigest === before.ledgerDigest, 'SOURCE_LEDGER_CHANGED');
       manifest.state = 'snapshotted';
       manifest.checks.sourceSnapshot = true;
-    } finally { await sql.end().catch(() => {}); }
+    } finally { sourceSnapshotOpen = false; await sql.end().catch(() => {}); }
+    await beforeMutation();
     return;
   }
   if (action === 'restore') {
@@ -373,7 +416,7 @@ export async function main(args) {
       manifest = await readJson(path, key);
       requireCondition(manifest.formatVersion === 1, 'UNSUPPORTED_MANIFEST_VERSION');
       const started = performance.now();
-      const controller = ['restore', 'rehearse', 'verify', 'recover-rehearsal'].includes(action) ? new AbortController() : null;
+      const controller = ['restore', 'rehearse', 'verify', 'recover-rehearsal', 'application-role'].includes(action) ? new AbortController() : null;
       const interrupt = () => controller.abort();
       if (controller) {
         process.once('SIGINT', interrupt);
@@ -385,7 +428,8 @@ export async function main(args) {
         await writeJson(path, manifest, key);
       };
       try {
-        await runAction(action, manifest, directory, key, save, { signal: controller?.signal });
+        await runAction(action, manifest, directory, key, save, { signal: controller?.signal,
+          ...(action === 'application-role' ? { roleAudit: await readJson(options['role-audit'], key), applicationCopy: options.copy } : {}) });
         manifest.durationsMs[action] = Math.round(performance.now() - started);
         await save();
       } catch (error) {
