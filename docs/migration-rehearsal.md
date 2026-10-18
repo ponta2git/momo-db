@@ -64,6 +64,8 @@ canonical profile は全 source / target column に検証方法を割り当て�
 
 layout の三列だけは、基準 audit と同じ read-only snapshot で既知 alias の正規化結果を hash にし、移行後と比較する。この証拠は baseline と profile の digest に結び付けて `canonical-source.json.enc` に保存する。anchor は元の凍結 source との旧 ID / title の全行対応と二つの UUID を確認する。旧 HTTP replay は rename 後の全列・全 bytes が同一、新しい UUID replay table は空であることを確認する。公開番号の byte 順、sequence の次値、counter の `max(0, global slot, active lease, attempts)`、元 ledger 行と正確な追加行もそれぞれ検証する。保存済み notification、artifact、radar payload は値を書き換えずに比較する。
 
+slot の廃止まで含む `0073`〜`0095` には `--profile canonical-identities-retired-slots-v1` を指定する。この別 profile は `0094` / `0095` の名前・時刻・hash を追加で固定し、元の `worker_execution_slots` 全列を廃止対象として記録する。基準 audit と同じ snapshot で slot 全行の fingerprint と job ごとの期待 fence を保存し、移行後の table 不在、残る 107 個の変換列・45 個の legacy 列、その他すべての保存値・schema・ledger・sequence を確認する。slot を黙って比較から外すことはない。元 slot の値は暗号化 archive と証拠に残し、archive からの recovery で再確認する。既存の `canonical-identities-v1` はこの追加 tail を拒否する。
+
 実データ copy で見つかった migration 管理外の `public.show_db_tree()` は、catalog を読み取る診断関数として定義を確認し、identity と全構造 digest を固定して保全する。存在する場合は移行前後の期待 schema に同じ関数を含めるため、削除・定義変更も不一致になる。それ以外の未知の追加関数や、管理対象 schema の差は許容しない。既存 DB の変更や関数の作り直しは行わない。
 
 ローカル PostgreSQL は run 固有 label、固定 image ID、internal / isolated network、tmpfs のみを使い、port を公開しない。各 command の間だけ host の 127.0.0.1 へ一時 TCP relay を開き、所有確認した container 内の `nc` へ接続する。relay の socket・子 process は終了時に回収し、port は manifest へ保存しない。restore と cleanup は実体を毎回再確認する。任意 DB URL、保存対象 `summit-postgres`、named volume、bind mount は対象にできない。上限は container memory 3 GiB / PGDATA 2 GiB なので、複数 copy が収まらない場合は容量設計を改訂して候補を作り直す。
@@ -79,7 +81,7 @@ layout の三列だけは、基準 audit と同じ read-only snapshot で既知 
 - locale 名だけでなく provider・rules・記録済み / 実際の collation version を比較する。source の builtin / libc 設定で初期化し、復元前に一致を確認する。version drift、未対応の ICU 等は停止し、名前の正規化だけで同一とみなさない。
 - constraint は元の定義を private inventory に保持し、比較には PostgreSQL 自身の deparser で不要な括弧を抑えた表現を使う。dump / restore に伴う同じ AND 条件の括弧差だけで失敗させず、AND / OR の優先順位や条件変更は検出する。この比較表現を復元用 SQL としては使わない。
 - 稼働中の snapshot では sequence は MVCC に従わない。sequence の元 DB と同時点の保全や停止継続は証明しない。二つの復元 copy 間では identity sequence を含め一致を検査する。
-- 既定の `preserve-v1` comparator は schema・アプリ保存値の変更を一切許容せず、pending tail がある場合は適用前に停止する。`public-identifiers-v1` と `canonical-identities-v1` の許容差分は、それぞれ上記の固定 tail と列別契約に限定する。候補を拡張する場合は期待 schema・列別 mapping と専用 comparator を更新し、その候補で再リハーサルする。
+- 既定の `preserve-v1` comparator は schema・アプリ保存値の変更を一切許容せず、pending tail がある場合は適用前に停止する。公開番号・canonical・slot retirement の各 profile の許容差分は、それぞれ上記の固定 tail と列別契約に限定する。候補を拡張する場合は期待 schema・列別 mapping と専用 comparator を更新し、その候補で再リハーサルする。
 - 新規の移行 copy では正規 migrator を再実行し、二回目が schema・ledger・保存値・sequence を変えないことまで検証する。途中終了後の既存 copy は読取り比較で分類し、再適用しない。二回目実行の証拠が残っていなければ未確認として fresh run を求める。
 - consumer の smoke、別 DB への実接続切替、画像本体、停止直後の最終 snapshot、本番承認・適用・再開は別の証拠が必要である。
 

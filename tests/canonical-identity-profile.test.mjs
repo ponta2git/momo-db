@@ -21,7 +21,7 @@ import { seedCanonicalSource, legacy } from './canonical-identity-fixtures.mjs';
 
 const repository = resolve('.');
 const codeIs = code => error => error.code === code && error.message === code;
-const latest = db => migrate(drizzle(db), { migrationsFolder: './drizzle' });
+const latest = db => migrateThrough(db, 93);
 let history; let profile; let references;
 
 async function isolated(run) {
@@ -43,7 +43,16 @@ async function snapshot(db, currentProfile, phase) {
 }
 
 before(async () => {
-  history = await loadCanonicalIdentityHistory(repository);
+  const directory = mkdtempSync(join(tmpdir(), 'momo-canonical-reviewed-history-'));
+  try {
+    cpSync('./drizzle', join(directory, 'drizzle'), { recursive: true });
+    cpSync('./docs/contracts', join(directory, 'docs/contracts'), { recursive: true });
+    const path = join(directory, 'drizzle/meta/_journal.json');
+    const journal = JSON.parse(readFileSync(path, 'utf8'));
+    journal.entries = journal.entries.slice(0, 94);
+    writeFileSync(path, JSON.stringify(journal));
+    history = await loadCanonicalIdentityHistory(directory);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
   await isolated(async db => {
     await migrateThrough(db, 72);
     const referenceBefore = await snapshot(db);
@@ -72,6 +81,7 @@ async function sourceFixture(db) {
 test('canonical profile pins every reviewed tail file and the complete public column contract', async () => {
   assert.equal(history.profile, CANONICAL_IDENTITY_PROFILE);
   assert.equal(history.entries.length, 94);
+  await assert.rejects(loadCanonicalIdentityHistory(repository), codeIs('CANONICAL_TAIL_CHANGED'), 'the historical profile rejects slot retirement');
   for (const change of ['hash', 'tag', 'timestamp', 'extra', 'contract']) {
     const directory = mkdtempSync(join(tmpdir(), 'momo-canonical-profile-history-'));
     try {
@@ -79,6 +89,7 @@ test('canonical profile pins every reviewed tail file and the complete public co
       cpSync('./docs/contracts', join(directory, 'docs/contracts'), { recursive: true });
       const path = join(directory, 'drizzle/meta/_journal.json');
       const journal = JSON.parse(readFileSync(path, 'utf8'));
+      journal.entries = journal.entries.slice(0, 94);
       if (change === 'hash') {
         const sql = join(directory, 'drizzle', `${journal.entries[85].tag}.sql`);
         writeFileSync(sql, readFileSync(sql, 'utf8') + '\n-- changed backfill\n');

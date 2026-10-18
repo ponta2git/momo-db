@@ -398,8 +398,8 @@ test('relay variants require EOF to release the PostgreSQL peer connection', () 
   }
 });
 
-test('explicit canonical identity profile builds a fresh reference and verifies the complete runner transition', async t => {
-  for (const profile of ['public-identifiers-v1', 'canonical-identities-v1']) {
+test('explicit canonical retirement profile builds a fresh reference and verifies the complete runner transition', async t => {
+  for (const profile of ['public-identifiers-v1', 'canonical-identities-v1', 'canonical-identities-retired-slots-v1']) {
     assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', profile]).options.profile, profile);
   }
   for (const args of [['verify', '--profile', 'public-identifiers-v1'], ['prepare', '--profile', 'unknown']]) {
@@ -409,7 +409,7 @@ test('explicit canonical identity profile builds a fresh reference and verifies 
     const key = randomBytes(32);
     const manifest = { formatVersion: 1, runId: randomUUID(), candidate: commands.candidate,
       postgres: { id: await command('docker', ['inspect', '--format', '{{.Image}}', process.env.MOMO_DB_TEST_CONTAINER]) },
-      profile: 'canonical-identities-v1', state: 'restored', local: null, checks: {}, incomplete: [], durationsMs: {} };
+      profile: 'canonical-identities-retired-slots-v1', state: 'restored', local: null, checks: {}, incomplete: [], durationsMs: {} };
     const save = () => writeJson(join(directory, 'manifest.json.enc'), manifest, key);
     const capture = async database => {
       const sql = connect(localUrl(manifest, database));
@@ -438,13 +438,13 @@ test('explicit canonical identity profile builds a fresh reference and verifies 
         await save();
         await runAction('rehearse', manifest, directory, key, save);
         assert.equal(manifest.state, 'verified');
-        for (const name of ['freshReference', 'migratorFirstRun', 'migratorNoop', 'migration', 'migrationSchema', 'savedRows', 'canonicalIdentityProjection']) {
+        for (const name of ['freshReference', 'migratorFirstRun', 'migratorNoop', 'migration', 'migrationSchema', 'savedRows', 'canonicalIdentityProjection', 'workerSlotRetirement']) {
           assert.equal(manifest.checks[name], true, name);
         }
         assert.equal((await commands.migratorCalls()).length, 3, 'reference plus two candidate migrator invocations');
         assert.deepEqual(await capture('momo_rehearsal_baseline'), before, 'baseline changed during reference or migration');
         const profile = await readJson(join(directory, 'profile.json.enc'), key);
-        assert.equal(profile.history.entries.length, 94);
+        assert.equal(profile.history.entries.length, 96);
         const sourceTransition = await readJson(join(directory, 'canonical-source.json.enc'), key);
         assert.equal(sourceTransition.baselineDigest, manifest.baselineDigest);
         assert.equal(sourceTransition.profileDigest, profile.profileDigest);
