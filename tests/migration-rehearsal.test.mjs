@@ -390,6 +390,19 @@ test('a valid encrypted report from another snapshot cannot authorize a restore'
   }));
 });
 
+test('a final frozen run cannot use the ordinary runner without the same live stop guard', async () => {
+  await withDirectory(async directory => withRunnerCommands(async commands => {
+    const key = randomBytes(32);
+    const manifest = { candidate: commands.candidate, finalFreeze: { stopEpoch: 1 }, state: 'prepared' };
+    const save = () => assert.fail('no state or database change is permitted');
+    await assert.rejects(runAction('snapshot', manifest, directory, key, save),
+      codeIs('FINAL_REHEARSAL_REQUIRES_LIVE_FREEZE_GUARD'));
+    await assert.rejects(runAction('snapshot', manifest, directory, key, save, { freezeGuard: async () => ({ stopEpoch: 2 }) }),
+      codeIs('FINAL_FREEZE_CHANGED'));
+    assert.equal(manifest.state, 'prepared');
+  }));
+});
+
 test('relay variants require EOF to release the PostgreSQL peer connection', () => {
   assert.deepEqual(relayArguments('OpenBSD netcat\n-N Shutdown the network socket after EOF'), ['-N']);
   assert.deepEqual(relayArguments('BusyBox v1.37.0\nUsage: nc [OPTIONS] HOST PORT'), []);
