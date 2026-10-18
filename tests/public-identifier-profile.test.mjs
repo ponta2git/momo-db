@@ -199,3 +199,39 @@ test('source schema must equal the fresh fixed prefix before any transformation 
     assert.throws(() => comparePublicIdentifierTransition({ before, ...captured, profile }), codeIs('PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS'));
   });
 });
+
+test('reviewed source-only diagnostic function is retained exactly, never excluded from schema comparison', async t => {
+  await withDatabase(async reference => {
+    await withHistory(72, folder => migrate(drizzle(reference), { migrationsFolder: folder }));
+    const referenceBefore = await snapshot(reference);
+    await withHistory(77, folder => migrate(drizzle(reference), { migrationsFolder: folder }));
+    const referenceAfter = await snapshot(reference);
+    await withDatabase(async source => {
+      await sourceFixture(source);
+      await source.unsafe(JSON.parse(readFileSync('tests/fixtures/rehearsal-diagnostic-function.json', 'utf8')));
+      const before = await snapshot(source);
+      const retainedProfile = createPublicIdentifierProfile({ history, referenceBefore, referenceAfter, sourceSchema: before.schema });
+      assert.deepEqual(retainedProfile.retainedFunctions, [{ schema: 'public', name: 'show_db_tree', arguments: '',
+        digest: '9a54f3362bfa1de93ad2f316e41e8374fe7fe6672c1dfe2706f484d737bc9215' }]);
+      await withHistory(77, folder => migrate(drizzle(source), { migrationsFolder: folder }));
+      const captured = await snapshot(source, retainedProfile);
+      assert.equal(comparePublicIdentifierTransition({ before, ...captured, profile: retainedProfile }).checks.targetSchema, true);
+      await t.test('unknown additions and modified diagnostic definitions cannot become expected source objects', async () => {
+        const unknown = structuredClone(before.schema);
+        unknown.functions.push({ ...unknown.functions.at(-1), name: 'unknown_diagnostic' });
+        assert.throws(() => createPublicIdentifierProfile({ history, referenceBefore, referenceAfter, sourceSchema: unknown }),
+          codeIs('PUBLIC_IDENTIFIER_UNREVIEWED_SOURCE_FUNCTION'));
+        const modified = structuredClone(before.schema);
+        modified.functions.find(value => value.name === 'show_db_tree').definition += '\n-- modified';
+        assert.throws(() => createPublicIdentifierProfile({ history, referenceBefore, referenceAfter, sourceSchema: modified }),
+          codeIs('PUBLIC_IDENTIFIER_UNREVIEWED_SOURCE_FUNCTION'));
+      });
+      await t.test('removing the retained diagnostic after migration fails the full target schema gate', async () => {
+        await source.unsafe('DROP FUNCTION public.show_db_tree()');
+        const removed = await snapshot(source, retainedProfile);
+        assert.throws(() => comparePublicIdentifierTransition({ before, ...removed, profile: retainedProfile }),
+          codeIs('PUBLIC_IDENTIFIER_TARGET_SCHEMA_DIFFERS'));
+      });
+    });
+  });
+});
