@@ -16,6 +16,8 @@
 
 通常経路は `PREPARING → DRAINING → FROZEN → VERIFIED → DB_APPLIED → SUMMIT_STAGED → CONSUMERS_STAGED → READY_TO_RESUME → REOPENING → RESUMED`。各段階は対応する証拠 digest を必要とする。`PREPARING` から通常 deploy を閉じ、通常業務の停止は別途 drain で行う。
 
+候補をまだ固定していない `PREPARING` で旧 Runtime の実接続証跡が不足する場合は、[限定した準備修復](preparation-runtime-repair.md)を使う。専用 receipt・既存 environment 承認・全 consumer の不変確認を必要とし、Runtime image だけを更新する。完了後も通常 deploy は閉じ、epoch を進めて `preparationRepair` evidence を保存する。通常の `permit` や停止後の consumer 配備の例外として扱わない。
+
 中止・旧構成への復旧には `recovery-ready → RECOVERY_READY → RECOVERY_REOPENING → RECOVERY_RESUMED → close-recovery` を使う。別 DB への接続切替、旧 consumer、旧 target の書込み禁止を確認した証拠が必要である。新構成へ配備したことを表す段階を偽装して復旧を完了しない。通常経路・復旧経路とも、最初の通常書込みや外部送信より前に REOPENING を記録する。それ以降は backup 上書きによる復旧へ戻さない。
 
 ## GitHub 承認との引継ぎ

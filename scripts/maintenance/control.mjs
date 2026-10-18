@@ -21,6 +21,9 @@ const operationPhase = {
   database: ['VERIFIED'], consumers: ['SUMMIT_STAGED'],
   analysis: ['CONSUMERS_STAGED', 'READY_TO_RESUME'], publish: ['RESUMED'],
 };
+// This one preparation operation uses its own receipt and transition validator.
+// It must never inherit the migration/deploy receipt or ordinary mutation guard.
+export const preparationRepairOperation = 'preparation-runtime-repair';
 const shaKey = { database: 'db', consumers: 'result', analysis: 'result', publish: 'result' };
 export const operationWorkflow = {
   database: '.github/workflows/ci.yml', consumers: '.github/workflows/deploy-maintenance.yml',
@@ -68,16 +71,22 @@ export function validateControl(record) {
   }
   check(['PREPARING', 'INVALIDATED', 'RECOVERY_READY', 'RECOVERY_REOPENING', 'RECOVERY_RESUMED'].includes(cutover.phase) || cutover.candidates !== null, 'CANDIDATES_REQUIRED');
   check(cutover.evidence && typeof cutover.evidence === 'object' && !Array.isArray(cutover.evidence) &&
-    Object.entries(cutover.evidence).every(([name, value]) => Object.values(phaseEvidence).includes(name) && hash(value)), 'INVALID_EVIDENCE');
+    Object.entries(cutover.evidence).every(([name, value]) =>
+      (Object.values(phaseEvidence).includes(name) || name === 'preparationRepair') && hash(value)), 'INVALID_EVIDENCE');
   check(Array.isArray(cutover.permits) && cutover.permits.length <= 32, 'INVALID_PERMITS');
   for (const permit of cutover.permits) validatePermit(permit);
+  if (cutover.permits.some(permit => permit.operation === preparationRepairOperation)) {
+    check(cutover.phase === 'PREPARING' && cutover.candidates === null && cutover.permits.length === 1 &&
+      Object.keys(cutover.evidence).length === 0 && cutover.invalidatedReason === null, 'INVALID_PREPARATION_REPAIR_STATE');
+  }
   check(new Set(cutover.permits.map(permit => `${permit.repository}:${permit.runId}:${permit.runAttempt}:${permit.operation}`)).size === cutover.permits.length, 'DUPLICATE_PERMIT');
   return record;
 }
 
 function validatePermit(permit) {
   exactKeys(permit, ['operation', 'repository', 'runId', 'runAttempt', 'receiptDigest', 'deadline'], 'INVALID_PERMIT');
-  check(permit.operation in operationPhase && permit.repository === repositories[shaKey[permit.operation]], 'INVALID_PERMIT_SCOPE');
+  check(permit.operation === preparationRepairOperation ? permit.repository === repositories.result :
+    permit.operation in operationPhase && permit.repository === repositories[shaKey[permit.operation]], 'INVALID_PERMIT_SCOPE');
   check(typeof permit.runId === 'string' && /^[1-9][0-9]{0,19}$/.test(permit.runId) && integer(permit.runAttempt), 'INVALID_RUN_ATTEMPT');
   check(hash(permit.receiptDigest) && timestamp(permit.deadline), 'INVALID_PERMIT_EVIDENCE');
 }
@@ -102,6 +111,7 @@ export function transition(record, expectedVersion, action, payload, now = new D
     check(cutover !== null && payload.cutoverId === cutover.id && payload.stopEpoch === cutover.stopEpoch, 'STOP_IDENTITY_MISMATCH');
     if (action === 'pin') {
       check(['PREPARING', 'INVALIDATED'].includes(cutover.phase), 'CANDIDATES_ALREADY_FROZEN');
+      check(!cutover.permits.some(permit => permit.operation === preparationRepairOperation), 'PREPARATION_REPAIR_IN_PROGRESS');
       cutover.candidates = payload.candidates;
     } else if (action === 'advance') {
       check(nextPhase[cutover.phase] === payload.phase && hash(payload.evidenceDigest), 'INVALID_PHASE_TRANSITION');
@@ -111,6 +121,7 @@ export function transition(record, expectedVersion, action, payload, now = new D
       cutover.permits = [];
     } else if (action === 'permit') {
       validatePermit(payload.permit);
+      check(payload.permit.operation !== preparationRepairOperation, 'DEDICATED_PREPARATION_REPAIR_GRANT_REQUIRED');
       check(operationPhase[payload.permit.operation].includes(cutover.phase), 'OPERATION_NOT_ALLOWED_IN_PHASE');
       check(Date.parse(payload.permit.deadline) > Date.parse(now), 'PERMIT_DEADLINE_PASSED');
       // Retrying a run needs a new exact attempt and newly reviewed receipt.
