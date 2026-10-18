@@ -1,0 +1,2 @@
+ALTER TABLE "series_analysis_jobs" ADD COLUMN "fencing_counter" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "series_analysis_jobs" ADD CONSTRAINT "series_analysis_jobs_fencing_counter_check" CHECK ("series_analysis_jobs"."fencing_counter" >= 0);

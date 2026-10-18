@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import test, { before } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -13,7 +13,6 @@ import { createPublicIdentifierProfile, inspectPublicIdentifierTransition, compa
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 
-const repository = resolve('.');
 const codeIs = code => error => error.code === code && error.message === code;
 let history;
 let profile;
@@ -26,14 +25,15 @@ async function withDatabase(run) {
   finally { await db.end(); docker(['dropdb', '-U', username, name]); }
 }
 
-async function withPrefix(run) {
+async function withHistory(lastIndex, run) {
   const folder = mkdtempSync(join(tmpdir(), 'momo-public-profile-prefix-'));
   try {
-    cpSync('./drizzle', folder, { recursive: true });
-    const journal = JSON.parse(readFileSync(join(folder, 'meta/_journal.json'), 'utf8'));
-    journal.entries = journal.entries.slice(0, 73);
-    writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify(journal));
-    return await run(folder);
+    const directory = join(folder, 'drizzle');
+    cpSync('./drizzle', directory, { recursive: true });
+    const journal = JSON.parse(readFileSync(join(directory, 'meta/_journal.json'), 'utf8'));
+    journal.entries = journal.entries.filter(entry => entry.idx <= lastIndex);
+    writeFileSync(join(directory, 'meta/_journal.json'), JSON.stringify(journal));
+    return await run(directory, folder);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 }
 
@@ -50,11 +50,11 @@ async function snapshot(db, currentProfile) {
 }
 
 before(async () => {
-  history = await loadPublicIdentifierHistory(repository);
+  history = await withHistory(77, (_folder, candidate) => loadPublicIdentifierHistory(candidate));
   await withDatabase(async db => {
-    await withPrefix(folder => migrate(drizzle(db), { migrationsFolder: folder }));
+    await withHistory(72, folder => migrate(drizzle(db), { migrationsFolder: folder }));
     const referenceBefore = await snapshot(db);
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await withHistory(77, folder => migrate(drizzle(db), { migrationsFolder: folder }));
     const referenceAfter = await snapshot(db);
     profile = createPublicIdentifierProfile({ history, referenceBefore, referenceAfter });
     const captured = await snapshot(db, profile);
@@ -63,7 +63,7 @@ before(async () => {
 });
 
 async function sourceFixture(db) {
-  await withPrefix(folder => migrate(drizzle(db), { migrationsFolder: folder }));
+  await withHistory(72, folder => migrate(drizzle(db), { migrationsFolder: folder }));
   await resetFixtures(db);
   for (const id of ['10', '2', 'A', 'a', '\uE000', '\u{10000}']) {
     await db`INSERT INTO held_events(id, held_date_iso, start_at)
@@ -93,6 +93,7 @@ test('public identifier profile pins exact migration tags, timestamps, hashes an
       cpSync('./drizzle', join(directory, 'drizzle'), { recursive: true });
       const path = join(directory, 'drizzle/meta/_journal.json');
       const journal = JSON.parse(readFileSync(path, 'utf8'));
+      journal.entries = journal.entries.slice(0, 78);
       if (change === 'hash') {
         const sql = join(directory, 'drizzle', `${journal.entries[74].tag}.sql`);
         writeFileSync(sql, readFileSync(sql, 'utf8') + '\n-- changed tail\n');
@@ -113,7 +114,7 @@ test('public identifier profile pins exact migration tags, timestamps, hashes an
 
 test('profile inspection requires an unfiltered repeatable-read read-only transaction', async () => {
   await withDatabase(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await withHistory(77, folder => migrate(drizzle(db), { migrationsFolder: folder }));
     await assert.rejects(inspectPublicIdentifierTransition(db, profile), codeIs('PUBLIC_IDENTIFIER_READ_ONLY_SNAPSHOT_REQUIRED'));
     await assert.rejects(db.begin('isolation level repeatable read read only', sql => inspectPublicIdentifierTransition(sql, profile)),
       codeIs('PUBLIC_IDENTIFIER_READ_ONLY_SNAPSHOT_REQUIRED'));
@@ -129,7 +130,7 @@ test('restored legacy rows pass only the two-column expansion and exact normal l
     const sourceDump = docker(['pg_dump', '-U', username, '--format=custom', sourceName]);
     await withDatabase(async (target, targetName) => {
       docker(['pg_restore', '-U', username, '--exit-on-error', '-d', targetName], sourceDump);
-      await migrate(drizzle(target), { migrationsFolder: './drizzle' });
+      await withHistory(77, folder => migrate(drizzle(target), { migrationsFolder: folder }));
       const captured = await snapshot(target, profile);
       const sourceSequence = before.rows.sequences.find(sequence => sequence.schema === 'drizzle');
       const firstLedgerId = BigInt(sourceSequence.last_value) + (sourceSequence.is_called ? 1n : 0n);
@@ -141,7 +142,7 @@ test('restored legacy rows pass only the two-column expansion and exact normal l
         checks: { sourceSchema: true, targetSchema: true, savedRows: true, existingLedgerRows: true,
           expectedLedgerAppend: true, deterministicPublicIds: true, sequences: true },
       });
-      await migrate(drizzle(target), { migrationsFolder: './drizzle' });
+      await withHistory(77, folder => migrate(drizzle(target), { migrationsFolder: folder }));
       const repeated = await snapshot(target, profile);
       assert.deepEqual(repeated, captured, 'second normal migrator changed rows, schema, ledger or sequence state');
       const targetDump = docker(['pg_dump', '-U', username, '--format=custom', targetName]);
@@ -192,7 +193,7 @@ test('source schema must equal the fresh fixed prefix before any transformation 
     await sourceFixture(db);
     await db.unsafe('CREATE TABLE public.unexpected_before_tail(id text PRIMARY KEY)');
     const before = await snapshot(db);
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await withHistory(77, folder => migrate(drizzle(db), { migrationsFolder: folder }));
     const captured = await snapshot(db, profile);
     assert.throws(() => comparePublicIdentifierTransition({ before, ...captured, profile }), codeIs('PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS'));
   });

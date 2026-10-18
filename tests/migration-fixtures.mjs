@@ -58,6 +58,30 @@ export function expectedPublicIdentifierRows(rows) {
   return expected;
 }
 
+// These older snapshot fixtures use JSON numbers for small counters. The new
+// dedicated fencing migration tests compare SQL text/fingerprints for i64 bounds.
+export function expectedFencingCounterRows(rows) {
+  if (!rows.series_analysis_jobs) return rows;
+  const integer = value => {
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error('Unsafe fixture counter');
+    return value == null ? 0n : BigInt(value);
+  };
+  if (rows.worker_execution_slots?.length !== 1) throw new Error('Expected the retained global execution slot');
+  const global = integer(rows.worker_execution_slots[0].fencing_token);
+  const attempts = new Map();
+  for (const attempt of rows.series_analysis_job_attempts ?? []) {
+    const token = integer(attempt.fencing_token);
+    if (token > (attempts.get(attempt.job_id) ?? 0n)) attempts.set(attempt.job_id, token);
+  }
+  return { ...rows, series_analysis_jobs: rows.series_analysis_jobs.map(row => {
+    if (Object.hasOwn(row, 'fencing_counter')) throw new Error('Expected rows before fencing counter expansion');
+    const seed = [0n, global, integer(row.lease_fencing_token), attempts.get(row.id) ?? 0n]
+      .reduce((maximum, value) => value > maximum ? value : maximum);
+    if (seed > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Use the precise fencing fixture for i64 values');
+    return { ...row, fencing_counter: Number(seed) };
+  }) };
+}
+
 // The scheduler tail removes only transport tables; historical terminal inputs
 // remain absent rather than being fabricated during schema expansion.
 export const retiredQueueTables = ['ocr_queue_outbox', 'series_analysis_queue_outbox'];
