@@ -136,6 +136,11 @@ export const responses = pgTable(
 //   永続不整合を回避する (COMPLETED は終端のため起動時リカバリが拾わない)。
 export const heldEvents = pgTable("held_events", {
   id: text("id").primaryKey(),
+  // Public routes serialize this independent number as a decimal string.
+  publicId: bigint("public_id", { mode: "bigint" })
+    .notNull()
+    .generatedAlwaysAsIdentity()
+    .unique(),
   // why: summit の Discord 出席 session に紐づく held_event は session_id を持つ。
   //   momo-result が単独で作成した ad-hoc 開催履歴は session_id NULL になる。
   // unique: NULL 以外は 1 Session につき 1 HeldEvent。

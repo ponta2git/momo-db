@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, envelope, resetFixtures } from './notification-fixtures.mjs';
-import { docker, retiredQueueTables, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { docker, expectedPublicIdentifierRows, retiredQueueTables, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 const submission = '11111111-1111-4111-8111-111111111111';
 const pendingSubmission = '22222222-2222-4222-8222-222222222222';
@@ -152,7 +152,7 @@ for (const holder of ['ocr', 'analysis']) {
         for (const table of retiredQueueTables) assert.equal(after.rows[table], undefined);
         const changed = new Set([...retiredQueueTables, 'ocr_jobs', 'ocr_submissions', 'match_drafts',
           ...(holder === 'ocr' ? ['worker_execution_slots'] : [])]);
-        for (const [table, rows] of Object.entries(before.rows)) {
+        for (const [table, rows] of Object.entries(expectedPublicIdentifierRows(before.rows))) {
           if (!changed.has(table)) assert.deepEqual(after.rows[table], rows, `${table} must be unchanged`);
         }
         for (const old of before.rows.ocr_jobs) {

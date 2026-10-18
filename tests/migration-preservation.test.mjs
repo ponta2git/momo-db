@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, envelope, now, resetFixtures } from './notification-fixtures.mjs';
-import { docker, username } from './migration-fixtures.mjs';
+import { docker, expectedPublicIdentifierRows, username } from './migration-fixtures.mjs';
 
 async function history(db) {
   const [row] = await db`SELECT
@@ -109,7 +109,9 @@ test('backup/restore plus the new migration tail preserves held history and all 
     copy = createTestClient(restored);
     assert.deepEqual(await history(copy), before, 'The backup must restore the complete original history');
     await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
-    assert.deepEqual(await history(copy), before, 'IDs, values and references of held/match history must remain identical');
+    const numbered = expectedPublicIdentifierRows({ held_events: before.held, matches: before.matches });
+    assert.deepEqual(await history(copy), { ...before, held: numbered.held_events, matches: numbered.matches },
+      'Legacy IDs, values and references must remain identical while public numbers are added');
     assert.deepEqual((await copy`SELECT id FROM sessions ORDER BY id`).map(r => r.id),
       ['active', 'failed', 'future', 'in-flight', 'pending']);
     assert.equal((await copy`SELECT count(*)::int AS n FROM responses`)[0].n, 5);

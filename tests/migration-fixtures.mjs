@@ -43,6 +43,21 @@ export function expectedLoginAccountRoles(accounts) {
   });
 }
 
+// Only the two new columns may differ; retain every legacy value and row order.
+export function expectedPublicIdentifierRows(rows) {
+  const expected = { ...rows };
+  for (const table of ['held_events', 'matches']) {
+    if (!expected[table]) continue;
+    const ids = expected[table].map(row => {
+      if (Object.hasOwn(row, 'public_id')) throw new Error('Expected rows before public identifier expansion');
+      return row.id;
+    }).sort((left, right) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
+    const numbers = new Map(ids.map((id, index) => [id, index + 1]));
+    expected[table] = expected[table].map(row => ({ ...row, public_id: numbers.get(row.id) }));
+  }
+  return expected;
+}
+
 // The scheduler tail removes only transport tables; historical terminal inputs
 // remain absent rather than being fabricated during schema expansion.
 export const retiredQueueTables = ['ocr_queue_outbox', 'series_analysis_queue_outbox'];

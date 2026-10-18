@@ -125,6 +125,11 @@ export const matches = pgTable(
   "matches",
   {
     id: text("id").primaryKey(),
+    // Public routes serialize this independent number as a decimal string.
+    publicId: bigint("public_id", { mode: "bigint" })
+      .notNull()
+      .generatedAlwaysAsIdentity()
+      .unique(),
     heldEventId: text("held_event_id")
       .notNull()
       .references(() => heldEvents.id, { onDelete: "restrict" }),

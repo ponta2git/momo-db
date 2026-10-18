@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient, resetFixtures } from './notification-fixtures.mjs';
-import { docker, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { docker, expectedPublicIdentifierRows, snapshotDatabase, username } from './migration-fixtures.mjs';
 
 async function withDatabase(run) {
   const name = 'momo_db_test_oauth_' + randomUUID().replaceAll('-', '').slice(0, 12);
@@ -66,7 +66,7 @@ test('OAuth expansion preserves every restored row, active session and migration
         assert.deepEqual(await snapshotDatabase(copy), before);
         await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
         const after = await snapshotDatabase(copy);
-        assert.deepEqual(after.rows, { ...before.rows, oauth_state_consumptions: [] });
+        assert.deepEqual(after.rows, { ...expectedPublicIdentifierRows(before.rows), oauth_state_consumptions: [] });
         assert.deepEqual(after.history.slice(0, before.history.length), before.history);
         assert.equal(after.history.length, expectedMigrationCount);
         await assertOAuthSchema(copy);
