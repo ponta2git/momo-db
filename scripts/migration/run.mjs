@@ -147,7 +147,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
     const references = await createMigrationReferences({ manifest, directory, repository,
       prefixLength: PUBLIC_IDENTIFIER_SOURCE_LENGTH, beforeMutation,
       capture: database => withDatabase(localUrl(manifest, database), sql => audit(sql)), migrateTarget: migrate });
-    const profile = createPublicIdentifierProfile({ history, ...references });
+    const profile = createPublicIdentifierProfile({ history, ...references, sourceSchema: before.schema });
     requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
     manifest.profileDigest = await writeReport('profile', profile);
     manifest.checks.freshReference = true;

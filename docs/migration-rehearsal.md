@@ -58,6 +58,8 @@ pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/mani
 
 この profile で許容する保存値の差分は、`held_events.public_id` と `matches.public_id` の追加だけである。旧 ID の UTF-8 byte 順から求めた連番、最大番号の次を返す identity sequence、既存 ledger 行の不変性と正確な五行の追加を検査する。ほかの列・全 table・schema・既存 sequence は比較対象から除外しない。追加の tail は別 profile が必要になる。
 
+実データ copy で見つかった migration 管理外の `public.show_db_tree()` は、catalog を読み取る診断関数として定義を確認し、identity と全構造 digest を固定して保全する。存在する場合は移行前後の期待 schema に同じ関数を含めるため、削除・定義変更も不一致になる。それ以外の未知の追加関数や、管理対象 schema の差は許容しない。既存 DB の変更や関数の作り直しは行わない。
+
 ローカル PostgreSQL は run 固有 label、固定 image ID、internal / isolated network、tmpfs のみを使い、port を公開しない。各 command の間だけ host の 127.0.0.1 へ一時 TCP relay を開き、所有確認した container 内の `nc` へ接続する。relay の socket・子 process は終了時に回収し、port は manifest へ保存しない。restore と cleanup は実体を毎回再確認する。任意 DB URL、保存対象 `summit-postgres`、named volume、bind mount は対象にできない。上限は container memory 3 GiB / PGDATA 2 GiB なので、複数 copy が収まらない場合は容量設計を改訂して候補を作り直す。
 
 実行中は private run lock を保持する。異常終了した lock は TTL で自動解除しない。残存 process と所有資源を確認してから管理者が解除する。migration 結果が不明なときは ledger を読み取り確認し、盲目的に再適用しない。
