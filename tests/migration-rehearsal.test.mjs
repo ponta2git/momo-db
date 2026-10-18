@@ -17,7 +17,7 @@ import { command } from '../scripts/migration/process.mjs';
 import { databaseLocation, connect, historyState, fingerprint, compareFingerprints, inspectConnection, inspectServer, compareDatabaseLocale } from '../scripts/migration/database.mjs';
 import { inventoryClient } from '../scripts/migration/sql-client.mjs';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
-import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection, localInitdbArguments } from '../scripts/migration/local.mjs';
+import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection, localInitdbArguments, relayArguments } from '../scripts/migration/local.mjs';
 import { main, runAction, compareMigration, parseArguments } from '../scripts/migration/run.mjs';
 import { expectedMigrationHistory } from '../scripts/check-migration-history.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
@@ -390,6 +390,14 @@ test('a valid encrypted report from another snapshot cannot authorize a restore'
   }));
 });
 
+test('relay variants require EOF to release the PostgreSQL peer connection', () => {
+  assert.deepEqual(relayArguments('OpenBSD netcat\n-N Shutdown the network socket after EOF'), ['-N']);
+  assert.deepEqual(relayArguments('BusyBox v1.37.0\nUsage: nc [OPTIONS] HOST PORT'), []);
+  for (const help of ['', 'nc: not found', 'OpenBSD netcat without a supported shutdown option', 'unknown netcat']) {
+    assert.throws(() => relayArguments(help), codeIs('POSTGRES_IMAGE_RELAY_VARIANT_UNSUPPORTED'));
+  }
+});
+
 test('explicit public identifier profile builds a fresh reference and verifies the complete runner transition', async t => {
   assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', 'public-identifiers-v1']).options.profile,
     'public-identifiers-v1');
@@ -438,6 +446,12 @@ test('explicit public identifier profile builds a fresh reference and verifies t
         assert.equal(profile.history.entries.length, 78);
         await runAction('verify', manifest, directory, key, save);
         assert.equal((await commands.migratorCalls()).length, 3, 'verify must not replay the migrator');
+        await createDatabase(manifest, 'momo_rehearsal_smoke', 'momo_rehearsal_migration');
+        const smoke = await capture('momo_rehearsal_smoke');
+        const migrated = await capture('momo_rehearsal_migration');
+        assert.deepEqual(smoke.rows, migrated.rows);
+        assert.deepEqual(smoke.schema, migrated.schema);
+        assert.deepEqual(smoke.connection.ledger, migrated.connection.ledger);
 
         await t.test('missing reference evidence cannot reuse a previously created reference database', async () => {
           delete manifest.profileDigest;

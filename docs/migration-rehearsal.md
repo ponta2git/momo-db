@@ -4,7 +4,7 @@
 
 ## 準備
 
-Node 24、repository 固定 pnpm、Docker 28 以降、取得済みの PostgreSQL 18 image を使う。image 内に `nc` と system CA bundle が必要で、`prepare` が検査する。作業 tree は未追跡ファイルを含め clean にし、候補を commit する。CLI は SHA・lockfile・migration 履歴の digest を固定し、以降に変更があれば停止する。
+Node 24、repository 固定 pnpm、Docker 28 以降、取得済みの PostgreSQL 18 image を使う。image 内に OpenBSD / BusyBox の `nc` と system CA bundle が必要で、`prepare` が検査する。OpenBSD 版には `-N` を付け、migrator の終了時にも stdin EOF を PostgreSQL 側の接続終了へ伝える。未知の `nc` 実装は受け入れない。作業 tree は未追跡ファイルを含め clean にし、候補を commit する。CLI は SHA・lockfile・migration 履歴の digest を固定し、以降に変更があれば停止する。
 
 source と locale metadata が一致する image を選ぶ。Alpine は `C.UTF-8` の LC_COLLATE を `C` として初期化する場合があり、その差は許容しない。Debian 版が必要なら、データや接続設定を含まない stdin Dockerfile から中継用 `nc` と system CA bundle を追加する。作成後の image ID は `prepare` が固定する。
 

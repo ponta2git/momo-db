@@ -11,6 +11,15 @@ const noMutationCheck = async () => {};
 const localConnections = new WeakMap();
 const isolatedGateway = 'com.docker.network.bridge.gateway_mode_ipv4';
 
+export function relayArguments(help) {
+  // OpenBSD nc keeps its peer socket open on stdin EOF unless -N is explicit.
+  // BusyBox closes it by default and does not implement -N. Unknown variants
+  // cannot attest that an abruptly exiting migrator releases its connection.
+  if (help.startsWith('OpenBSD netcat') && /-N\b/.test(help)) return ['-N'];
+  if (help.includes('BusyBox') && help.includes('Usage: nc')) return [];
+  requireCondition(false, 'POSTGRES_IMAGE_RELAY_VARIANT_UNSUPPORTED');
+}
+
 function assertIdentity(manifest) {
   requireCondition(typeof manifest.runId === 'string' &&
     /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(manifest.runId), 'INVALID_RUN_ID');
@@ -23,8 +32,8 @@ export async function resolvePostgresImage(image) {
   requireCondition(/^sha256:[a-f0-9]{64}$/.test(id), 'POSTGRES_IMAGE_MUST_BE_IMMUTABLE');
   const version = await command('docker', ['run', '--rm', '--network', 'none', id, 'pg_dump', '--version']);
   requireCondition(/^pg_dump \(PostgreSQL\) 18\./.test(version), 'POSTGRES_18_CLIENT_REQUIRED');
-  await command('docker', ['run', '--rm', '--network', 'none', id, 'sh', '-c', 'command -v nc >/dev/null'],
-    { failureCode: 'POSTGRES_IMAGE_RELAY_REQUIRED' });
+  relayArguments(await command('docker', ['run', '--rm', '--network', 'none', id, 'sh', '-c', 'nc -h 2>&1 || true'],
+    { failureCode: 'POSTGRES_IMAGE_RELAY_REQUIRED' }));
   await command('docker', ['run', '--rm', '--network', 'none', id, 'sh', '-c', 'test -s /etc/ssl/certs/ca-certificates.crt'],
     { failureCode: 'POSTGRES_IMAGE_SYSTEM_CA_REQUIRED' });
   return { id, version };
@@ -60,23 +69,38 @@ export async function withLocalConnection(manifest, operation, { signal } = {}) 
   requireCondition(!signal?.aborted, 'LOCAL_DATABASE_RELAY_ABORTED');
   await assertOwned(manifest);
   if (localConnections.has(manifest)) return operation();
+  const ncArguments = relayArguments(await command('docker', ['exec', manifest.local.container,
+    'sh', '-c', 'nc -h 2>&1 || true'], { failureCode: 'POSTGRES_IMAGE_RELAY_REQUIRED' }));
   // Internal Docker networks intentionally do not publish host ports. Relay
   // PostgreSQL only through Docker's exec stream: the DB retains no outbound
   // route, and its temporary host listener is restricted to IPv4 loopback.
   const sockets = new Set();
   const children = new Set();
+  let forcedClose = false;
   const server = createServer(socket => {
     sockets.add(socket);
-    const running = start('docker', ['exec', '-i', manifest.local.container, 'nc', '127.0.0.1', '5432'],
+    const running = start('docker', ['exec', '-i', manifest.local.container, 'nc', ...ncArguments, '127.0.0.1', '5432'],
       { failureCode: 'LOCAL_DATABASE_RELAY_FAILED' });
     children.add(running);
+    let closing;
+    running.close = () => {
+      if (closing) return;
+      socket.unpipe(running.child.stdin);
+      // Send EOF through Docker's exec stream before reaping its client. Killing
+      // only the Docker CLI can leave nc and an idle PostgreSQL backend alive.
+      running.child.stdin.end();
+      running.child.stdout.resume();
+      closing = setTimeout(() => { forcedClose = true; running.child.kill('SIGKILL'); }, 3000);
+      const settled = () => clearTimeout(closing);
+      running.completed.then(settled, settled);
+    };
     socket.on('error', () => {});
     running.child.stdin.on('error', () => socket.destroy());
     socket.pipe(running.child.stdin);
     running.child.stdout.pipe(socket);
     socket.once('close', () => {
       sockets.delete(socket);
-      running.child.kill('SIGKILL');
+      running.close();
     });
     running.completed.then(() => socket.end(), () => socket.destroy()).finally(() => children.delete(running));
   });
@@ -91,11 +115,13 @@ export async function withLocalConnection(manifest, operation, { signal } = {}) 
     localConnections.delete(manifest);
     const closed = new Promise(resolve => server.close(resolve));
     for (const socket of sockets) socket.destroy();
-    for (const { child } of children) child.kill('SIGKILL');
-    closing = Promise.allSettled([closed, ...Array.from(children, ({ completed }) => completed)]);
+    for (const child of children) child.close();
+    closing = Promise.allSettled([closed, ...Array.from(children, ({ completed }) => completed)]).then(() => {
+      requireCondition(!forcedClose, 'LOCAL_DATABASE_RELAY_DID_NOT_CLOSE');
+    });
     return closing;
   };
-  const abort = () => { void close(); };
+  const abort = () => { void close().catch(() => {}); };
   signal?.addEventListener('abort', abort, { once: true });
   try {
     requireCondition(!signal?.aborted, 'LOCAL_DATABASE_RELAY_ABORTED');
