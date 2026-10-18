@@ -16,7 +16,9 @@ const vectors = JSON.parse(readFileSync('./tests/fixtures/canonical-identities-v
 const sourceSchema = JSON.parse(readFileSync('./drizzle/meta/0082_snapshot.json', 'utf8'));
 const targetSchema = JSON.parse(readFileSync('./drizzle/meta/0093_snapshot.json', 'utf8'));
 const converted = contract.columns.filter(column => column.sourceType !== 'uuid' && column.targetType === 'uuid');
-const latest = db => migrate(drizzle(db), { migrationsFolder: './drizzle' });
+// This historical gate verifies the complete 0093 canonical contract. The
+// separately tested retirement tail owns the later removal of the shared slot.
+const latest = db => migrateThrough(db, 93);
 const identity = (entity, value) => canonicalIdentity(entity, value);
 const q = value => '"' + value.replaceAll('"', '""') + '"';
 

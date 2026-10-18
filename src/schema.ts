@@ -101,8 +101,7 @@ export {
   seriesAnalysisJobRequests,
   seriesAnalysisJobAttempts,
   seriesAnalysisWorkerCapabilities,
-  seriesAnalysisReaderCapabilities,
-  workerExecutionSlots
+  seriesAnalysisReaderCapabilities
 } from "./schema/analysis/jobs.js";
 
 export {

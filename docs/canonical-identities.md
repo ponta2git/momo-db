@@ -123,7 +123,7 @@ fresh と復元 copy で、全 row の approved projection、元の payload byte
 | `0090` / `0091` | native PK / nullability / legacy uniqueness と空の anchor・新 replay table を宣言し、凍結 source を変更せず anchor を作る。不要な中間 legacy FK 列だけを除く。 |
 | `0092` / `0093` | 最終 FK を接続し、publication と radar source cleanup の lookup を anchor 経由にする。 |
 
-通常の Drizzle migrator は pending tail 全体を一つの transaction で適用する。writer 停止、基準保存、対応 consumer の切替が揃うまで、この tail の途中を稼働 schema として使わない。`worker_execution_slots` はこの tail では保持する。P6 consumer の no-slot gate と counter seed の確認後に行う削除は、別の migration として扱う。
+通常の Drizzle migrator は pending tail 全体を一つの transaction で適用する。writer 停止、基準保存、対応 consumer の切替が揃うまで、この tail の途中を稼働 schema として使わない。`worker_execution_slots` は `0093` までのこの tail では保持する。P6 consumer の no-slot gate と counter seed の確認後に行う削除は、別の [`0094` / `0095` retirement migration](analysis-fencing-counter.md#shared-slot-の廃止) として扱う。列契約 v1 は UUID 切替時の固定契約として変更せず、retirement profile が slot の全 source 列を明示的な廃止対象として追加検証する。
 
 生成 DDL の局所補正は次の二点に限る。`0087` の旧 replay PK は適用済み `0013` が `idempotency_keys_pkey` と命名しており、旧 snapshot の推論名と異なるため、実際の制約名へ補正した。`0090` は Drizzle Kit 0.31.10 が inline PK の旧名を取得できず drop を placeholder / 未出力にするため、適用済み CREATE TABLE と fresh prefix の catalog で確認した `<table>_pkey` を drop して、宣言済みの新 PK に置き換える。独立した function / trigger / data transition は custom migration に分離し、metadata は手編集しない。
 

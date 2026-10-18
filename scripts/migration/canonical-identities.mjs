@@ -10,6 +10,7 @@ import { PUBLIC_IDENTIFIER_TAIL, assertReferenceShape, retainReviewedFunctions, 
   rowFingerprint } from './public-identifiers.mjs';
 
 export const CANONICAL_IDENTITY_PROFILE = 'canonical-identities-v1';
+export const WORKER_SLOT_RETIREMENT_PROFILE = 'canonical-identities-retired-slots-v1';
 export const CANONICAL_IDENTITY_SOURCE_LENGTH = 73;
 export const CANONICAL_CONTRACT_DIGEST = 'a40ed5f8ec408ea1c4957967c42091485aac3a487901a5dc39f259b0c9dab811';
 export const CANONICAL_IDENTITY_TAIL = Object.freeze([
@@ -31,11 +32,20 @@ export const CANONICAL_IDENTITY_TAIL = Object.freeze([
   { idx: 92, tag: '0092_attach-canonical-identity-references', created_at: '1792287890195', hash: '861261e4161bcc53766a15ffa762aacf26fbc929dcf542ebeebc7643a6390d11' },
   { idx: 93, tag: '0093_canonical-publication-guards', created_at: '1792287900052', hash: '0151dcf6b10377acd9260a2e1a579198a6d124780c2fe533ecdc3039015afa16' },
 ].map(Object.freeze));
+export const WORKER_SLOT_RETIREMENT_TAIL = Object.freeze([
+  { idx: 94, tag: '0094_reseed-before-worker-slot-retirement', created_at: '1792290973529', hash: '4b20342d3d2358b4cd51d2c6fa64d8e0114ca5ba976c6d52fc87ffdced999c4a' },
+  { idx: 95, tag: '0095_retire-worker-execution-slots', created_at: '1792291022657', hash: '4c0ffe0b09d6847dc3989deb5d2220a861071207f9a4357b5d659157642db6d7' },
+].map(Object.freeze));
+
+export const isCanonicalIdentityProfile = profile => [CANONICAL_IDENTITY_PROFILE, WORKER_SLOT_RETIREMENT_PROFILE].includes(profile);
+const profileTail = profile => {
+  requireCondition(isCanonicalIdentityProfile(profile), 'CANONICAL_HISTORY_INVALID');
+  return profile === WORKER_SLOT_RETIREMENT_PROFILE ? [...CANONICAL_IDENTITY_TAIL, ...WORKER_SLOT_RETIREMENT_TAIL] : CANONICAL_IDENTITY_TAIL;
+};
 
 const contractBytes = await readFile(new URL('../../docs/contracts/canonical-identities-v1.json', import.meta.url));
 requireCondition(createHash('sha256').update(contractBytes).digest('hex') === CANONICAL_CONTRACT_DIGEST, 'CANONICAL_CONTRACT_CHANGED');
 const contract = JSON.parse(contractBytes);
-const targetLength = CANONICAL_IDENTITY_SOURCE_LENGTH + CANONICAL_IDENTITY_TAIL.length;
 const rowAlgorithm = 'sha256-row-multiset-v2';
 const key = value => JSON.stringify([value.schema, value.name]);
 const columnKey = value => JSON.stringify([value.schema, value.table, value.column]);
@@ -62,8 +72,9 @@ const one = (values, wanted, code) => {
 };
 
 function validateHistory(history) {
-  requireCondition(history?.profile === CANONICAL_IDENTITY_PROFILE && Array.isArray(history.entries)
-    && history.entries.length === targetLength && history.migrationDigest === digest(history.entries)
+  const tail = profileTail(history?.profile);
+  requireCondition(Array.isArray(history.entries)
+    && history.entries.length === CANONICAL_IDENTITY_SOURCE_LENGTH + tail.length && history.migrationDigest === digest(history.entries)
     && history.contractDigest === CANONICAL_CONTRACT_DIGEST, 'CANONICAL_HISTORY_INVALID');
   let previous = -1n;
   for (const entry of history.entries) {
@@ -73,10 +84,11 @@ function validateHistory(history) {
     requireCondition(timestamp > previous, 'CANONICAL_HISTORY_INVALID');
     previous = timestamp;
   }
-  requireCondition(equal(history.entries.slice(CANONICAL_IDENTITY_SOURCE_LENGTH), historyRows(CANONICAL_IDENTITY_TAIL)), 'CANONICAL_TAIL_CHANGED');
+  requireCondition(equal(history.entries.slice(CANONICAL_IDENTITY_SOURCE_LENGTH), historyRows(tail)), 'CANONICAL_TAIL_CHANGED');
 }
 
-export async function loadCanonicalIdentityHistory(repository) {
+export async function loadCanonicalIdentityHistory(repository, { profile = CANONICAL_IDENTITY_PROFILE } = {}) {
+  const tail = profileTail(profile);
   let journal; let entries; let bytes;
   try {
     const directory = resolve(repository, 'drizzle');
@@ -85,11 +97,11 @@ export async function loadCanonicalIdentityHistory(repository) {
     bytes = await readFile(resolve(repository, 'docs/contracts/canonical-identities-v1.json'));
   } catch { requireCondition(false, 'CANONICAL_HISTORY_INVALID'); }
   requireCondition(createHash('sha256').update(bytes).digest('hex') === CANONICAL_CONTRACT_DIGEST, 'CANONICAL_CONTRACT_CHANGED');
-  requireCondition(journal.entries.length === targetLength && CANONICAL_IDENTITY_TAIL.every(expected => {
+  requireCondition(journal.entries.length === CANONICAL_IDENTITY_SOURCE_LENGTH + tail.length && tail.every(expected => {
     const actual = journal.entries[expected.idx];
     return actual?.idx === expected.idx && actual.tag === expected.tag && String(actual.when) === expected.created_at;
   }), 'CANONICAL_TAIL_CHANGED');
-  const history = { profile: CANONICAL_IDENTITY_PROFILE, entries, migrationDigest: digest(entries), contractDigest: CANONICAL_CONTRACT_DIGEST };
+  const history = { profile, entries, migrationDigest: digest(entries), contractDigest: CANONICAL_CONTRACT_DIGEST };
   validateHistory(history);
   return history;
 }
@@ -100,9 +112,11 @@ function assertLedger(audit, expected, code) {
 
 /** Every source and target column has an explicit proof. A new column, table,
  * omitted legacy alias or unknown conversion makes this fixed profile fail. */
-export function canonicalColumnCoverage(before, after) {
+export function canonicalColumnCoverage(before, after, { retireWorkerSlots = false } = {}) {
   const covered = [];
   const tables = [];
+  const allSourceTables = [];
+  const retiredTables = [];
   const observedSource = [];
   const add = (schema, table, column, mode) => covered.push({ schema, table, column, mode });
   for (const source of before.tables) {
@@ -112,6 +126,7 @@ export function canonicalColumnCoverage(before, after) {
       continue;
     }
     requireCondition(source.schema === 'public', 'CANONICAL_SOURCE_RELATION_UNSUPPORTED');
+    const retired = retireWorkerSlots && source.name === 'worker_execution_slots';
     const target = source.name === 'idempotency_keys' ? 'idempotency_keys_legacy' : source.name;
     const columns = source.columns.map(column => {
       const matches = contract.columns.filter(value => value.table === source.name && value.column === column.name);
@@ -127,18 +142,21 @@ export function canonicalColumnCoverage(before, after) {
           'CANONICAL_REFERENCE_WITHOUT_LEGACY_PROOF');
         lookupTable = anchors.find(anchor => anchor.source === item.targetEntity)?.target ?? item.targetEntity;
       }
-      add('public', target, column.name, mode);
+      if (!retired) add('public', target, column.name, mode);
       return { name: column.name, mode, entity: item.policy === 'canonical_entity' ? source.name : item.targetEntity,
         legacyColumn: item.legacyColumn, lookupTable, polymorphic: item.policy === 'polymorphic_reference' };
     });
-    tables.push({ source: { schema: 'public', name: source.name }, target: { schema: 'public', name: target }, columns });
+    const table = { source: { schema: 'public', name: source.name }, target: { schema: 'public', name: target }, columns };
+    allSourceTables.push(table);
+    if (retired) retiredTables.push({ ...table.source, columns: columns.map(column => ({ name: column.name, mode: 'retired-shared-slot' })) });
+    else tables.push(table);
   }
   requireCondition(equal(observedSource.sort(), contract.columns.filter(item => !additions.some(added => added.table === item.table && added.column === item.column))
     .map(item => `${item.table}.${item.column}`).sort()), 'CANONICAL_SOURCE_COLUMN_COVERAGE_DIFFERS');
   for (const item of contract.newLegacyColumns) {
-    const source = tables.find(table => table.source.name === item.table)?.columns.find(column => column.name === item.sourceColumn);
+    const source = allSourceTables.find(table => table.source.name === item.table)?.columns.find(column => column.name === item.sourceColumn);
     requireCondition(source?.mode === 'typed-uuid' && source.legacyColumn === item.column, 'CANONICAL_LEGACY_COLUMN_WITHOUT_SOURCE_PROOF');
-    add('public', item.table, item.column, 'exact-legacy-alias');
+    if (!retiredTables.some(table => table.name === item.table)) add('public', item.table, item.column, 'exact-legacy-alias');
   }
   for (const item of additions) add('public', item.table, item.column, item.mode);
   for (const anchor of anchors) {
@@ -150,18 +168,20 @@ export function canonicalColumnCoverage(before, after) {
   const expected = after.tables.flatMap(table => table.columns.map(column => columnKey({ schema: table.schema, table: table.name, column: column.name }))).sort();
   const actual = covered.map(columnKey).sort();
   requireCondition(new Set(actual).size === actual.length && equal(actual, expected), 'CANONICAL_TARGET_COLUMN_COVERAGE_DIFFERS');
-  requireCondition(tables.flatMap(table => table.columns).filter(column => column.mode === 'typed-uuid').length === 109
+  requireCondition(retiredTables.length === (retireWorkerSlots ? 1 : 0), 'CANONICAL_RETIREMENT_COVERAGE_DIFFERS');
+  requireCondition(tables.flatMap(table => table.columns).filter(column => column.mode === 'typed-uuid').length === (retireWorkerSlots ? 107 : 109)
     && contract.newLegacyColumns.length === 47, 'CANONICAL_CONVERSION_COVERAGE_DIFFERS');
-  return { tables, columns: covered.sort((left, right) => Buffer.compare(Buffer.from(columnKey(left)), Buffer.from(columnKey(right)))) };
+  return { tables, retiredTables, columns: covered.sort((left, right) => Buffer.compare(Buffer.from(columnKey(left)), Buffer.from(columnKey(right)))) };
 }
 
 function profileBody(profile) { const { profileDigest, ...body } = profile; return body; }
 
 function validateProfile(profile) {
-  requireCondition(profile?.formatVersion === 1 && profile.profile === CANONICAL_IDENTITY_PROFILE
+  requireCondition(profile?.formatVersion === 1 && isCanonicalIdentityProfile(profile.profile)
     && profile.profileDigest === digest(profileBody(profile)), 'CANONICAL_PROFILE_CHANGED');
   validateHistory(profile.history);
-  requireCondition(equal(profile.coverage, canonicalColumnCoverage(profile.schemaBefore, profile.schemaAfter)), 'CANONICAL_PROFILE_CHANGED');
+  requireCondition(profile.history.profile === profile.profile && equal(profile.coverage,
+    canonicalColumnCoverage(profile.schemaBefore, profile.schemaAfter, { retireWorkerSlots: profile.profile === WORKER_SLOT_RETIREMENT_PROFILE })), 'CANONICAL_PROFILE_CHANGED');
   requireCondition(equal(profile.ledgerSequence, assertReferenceShape(profile.schemaBefore, profile.schemaAfter)), 'CANONICAL_PROFILE_CHANGED');
   for (const retained of profile.retainedFunctions ?? []) {
     requireCondition(retainedFunctions.some(expected => equal(retained, expected)), 'CANONICAL_PROFILE_CHANGED');
@@ -183,9 +203,10 @@ export function createCanonicalIdentityProfile({ history, referenceBefore, refer
   }
   const retained = retainReviewedFunctions(schemaStructure(referenceBefore.schema), schemaStructure(referenceAfter.schema), sourceSchema);
   const { schemaBefore, schemaAfter } = retained;
-  const body = { formatVersion: 1, profile: CANONICAL_IDENTITY_PROFILE, history: structuredClone(history),
+  const body = { formatVersion: 1, profile: history.profile, history: structuredClone(history),
     referenceServer: structuredClone(referenceAfter.connection.server), ...retained,
-    ledgerSequence: assertReferenceShape(schemaBefore, schemaAfter), coverage: canonicalColumnCoverage(schemaBefore, schemaAfter) };
+    ledgerSequence: assertReferenceShape(schemaBefore, schemaAfter),
+    coverage: canonicalColumnCoverage(schemaBefore, schemaAfter, { retireWorkerSlots: history.profile === WORKER_SLOT_RETIREMENT_PROFILE }) };
   return { ...body, profileDigest: digest(body) };
 }
 
@@ -246,8 +267,17 @@ export async function inspectCanonicalSource(sql, profile, before) {
     anchorAliases.push(await rowFingerprint(sql, { schema: 'public', name: anchor.target },
       sql.unsafe(`(SELECT id AS legacy_id, game_title_id AS legacy_game_title_id FROM public.${q(anchor.source)})`), sql`to_jsonb(record)`));
   }
+  const retiredTables = [];
+  for (const table of profile.coverage.retiredTables) {
+    retiredTables.push(await rowFingerprint(sql, { schema: table.schema, name: table.name }, sql.unsafe(relation(table)), sql`to_jsonb(record)`));
+  }
+  const fencingSeeds = await rowFingerprint(sql, { schema: 'public', name: 'series_analysis_jobs' },
+    sql`(SELECT jobs.id AS legacy_id, greatest(0::bigint,
+      (SELECT max(fencing_token) FROM public.worker_execution_slots), coalesce(jobs.lease_fencing_token, 0),
+      coalesce((SELECT max(attempt.fencing_token) FROM public.series_analysis_job_attempts attempt WHERE attempt.job_id = jobs.id), 0)) AS fencing_counter
+      FROM public.series_analysis_jobs jobs)`, sql`to_jsonb(record)`);
   return { formatVersion: 1, profile: profile.profile, profileDigest: profile.profileDigest,
-    baselineDigest: digest(before), algorithm: rowAlgorithm, normalizedTables, anchorAliases };
+    baselineDigest: digest(before), algorithm: rowAlgorithm, normalizedTables, anchorAliases, retiredTables, fencingSeeds };
 }
 
 async function inspectIdentityPairs(sql, table, column, identities) {
@@ -327,15 +357,15 @@ export async function inspectCanonicalIdentityTransition(sql, profile) {
     ]) identityChecks.push(await inspectIdentityPairs(sql, table, column, identities));
   }
   const [fencing] = await sql`SELECT count(*)::text AS rows,
-    count(*) FILTER (WHERE jobs.fencing_counter IS DISTINCT FROM greatest(0::bigint,
-      (SELECT max(fencing_token) FROM public.worker_execution_slots), coalesce(jobs.lease_fencing_token, 0),
-      coalesce((SELECT max(attempt.fencing_token) FROM public.series_analysis_job_attempts attempt WHERE attempt.job_id = jobs.id), 0)))::text AS incorrect,
     count(*) FILTER (WHERE jobs.fencing_counter < 0 OR jobs.fencing_counter >= 9223372036854775807)::text AS exhausted
     FROM public.series_analysis_jobs jobs`;
+  fencing.projection = await rowFingerprint(sql, { schema: 'public', name: 'series_analysis_jobs' },
+    sql`(SELECT legacy_id, fencing_counter FROM public.series_analysis_jobs)`, sql`to_jsonb(record)`);
   const ledgerPrefix = await rowFingerprint(sql, ledgerTable,
     sql`(SELECT * FROM drizzle.__drizzle_migrations ORDER BY id LIMIT ${CANONICAL_IDENTITY_SOURCE_LENGTH})`, sql`to_jsonb(record)`);
   const ledgerTail = await sql`SELECT record.id::text AS id, record.hash, record.created_at::text AS created_at
-    FROM drizzle.__drizzle_migrations record ORDER BY record.id OFFSET ${CANONICAL_IDENTITY_SOURCE_LENGTH} LIMIT ${CANONICAL_IDENTITY_TAIL.length + 1}`;
+    FROM drizzle.__drizzle_migrations record ORDER BY record.id OFFSET ${CANONICAL_IDENTITY_SOURCE_LENGTH}
+    LIMIT ${profile.history.entries.length - CANONICAL_IDENTITY_SOURCE_LENGTH + 1}`;
   return { formatVersion: 1, profile: profile.profile, profileDigest: profile.profileDigest, algorithm: rowAlgorithm,
     coverageDigest: digest(profile.coverage), projectedTables, identityChecks, anchorAliases, fencing,
     publicIdentifiers: await inspectPublicNumbers(sql), ledgerPrefix, ledgerTail: Array.from(ledgerTail) };
@@ -368,7 +398,12 @@ export function compareCanonicalIdentityTransition({ before, after, sourceTransi
   requireCondition(equal(transition.projectedTables.map(key), profile.coverage.tables.map(table => key(table.source))), 'CANONICAL_SAVED_TABLES_DIFFER');
   requireCondition(equal(sourceTransition.normalizedTables.map(key), profile.coverage.tables.filter(table => layoutTables.includes(table.source.name)).map(table => key(table.source)))
     && equal(sourceTransition.anchorAliases.map(key), anchors.map(anchor => key({ schema: 'public', name: anchor.target })))
-    && equal(transition.anchorAliases.map(key), sourceTransition.anchorAliases.map(key)), 'CANONICAL_SOURCE_TRANSITION_INCOMPLETE');
+    && equal(transition.anchorAliases.map(key), sourceTransition.anchorAliases.map(key))
+    && equal(sourceTransition.retiredTables?.map(key), profile.coverage.retiredTables.map(key)), 'CANONICAL_SOURCE_TRANSITION_INCOMPLETE');
+  for (const table of profile.coverage.retiredTables) {
+    requireCondition(equal(one(sourceTransition.retiredTables, table, 'CANONICAL_RETIREMENT_SOURCE_MISSING'),
+      one(before.rows.tables, table, 'CANONICAL_RETIREMENT_SOURCE_MISSING')), 'CANONICAL_RETIREMENT_SOURCE_DIFFERS');
+  }
   for (const table of profile.coverage.tables) {
     const original = one(before.rows.tables, table.source, 'CANONICAL_SAVED_TABLES_DIFFER');
     const observed = one(after.rows.tables, table.target, 'CANONICAL_SAVED_TABLES_DIFFER');
@@ -391,19 +426,22 @@ export function compareCanonicalIdentityTransition({ before, after, sourceTransi
   }
   requireCondition(one(after.rows.tables, { schema: 'public', name: 'idempotency_keys' }, 'CANONICAL_NEW_REPLAY_TABLE_REQUIRED').rows === '0', 'CANONICAL_NEW_REPLAY_NOT_EMPTY');
   requireCondition(transition.fencing?.rows === one(before.rows.tables, { schema: 'public', name: 'series_analysis_jobs' }, 'CANONICAL_SAVED_TABLES_DIFFER').rows
-    && transition.fencing.incorrect === '0' && transition.fencing.exhausted === '0', 'CANONICAL_FENCING_SEED_DIFFERS');
+    && sourceTransition.fencingSeeds?.rows === transition.fencing.rows
+    && equal(transition.fencing.projection, sourceTransition.fencingSeeds)
+    && transition.fencing.exhausted === '0', 'CANONICAL_FENCING_SEED_DIFFERS');
   const oldLedger = one(before.rows.tables, ledgerTable, 'CANONICAL_LEDGER_PREFIX_ROWS_DIFFER');
   const newLedger = one(after.rows.tables, ledgerTable, 'CANONICAL_TARGET_LEDGER_DIFFERS');
   requireCondition(equal(transition.ledgerPrefix, oldLedger), 'CANONICAL_LEDGER_PREFIX_ROWS_DIFFER');
-  requireCondition(BigInt(newLedger.rows) === BigInt(oldLedger.rows) + BigInt(CANONICAL_IDENTITY_TAIL.length), 'CANONICAL_TARGET_LEDGER_DIFFERS');
+  const expectedTail = profile.history.entries.slice(CANONICAL_IDENTITY_SOURCE_LENGTH);
+  requireCondition(BigInt(newLedger.rows) === BigInt(oldLedger.rows) + BigInt(expectedTail.length), 'CANONICAL_TARGET_LEDGER_DIFFERS');
   const expectedSequenceNames = [...before.rows.sequences.map(key), ...targets.map(name => key({ schema: 'public', name: `${name}_public_id_seq` }))].sort();
   requireCondition(equal(after.rows.sequences.map(key).sort(), expectedSequenceNames), 'CANONICAL_SEQUENCE_SET_DIFFERS');
   const sourceSequence = one(before.rows.sequences, profile.ledgerSequence, 'CANONICAL_LEDGER_SEQUENCE_UNSUPPORTED');
   requireCondition(typeof sourceSequence.is_called === 'boolean' && /^-?[0-9]+$/.test(sourceSequence.last_value), 'CANONICAL_LEDGER_SEQUENCE_UNSUPPORTED');
   const firstLedgerId = BigInt(sourceSequence.last_value) + (sourceSequence.is_called ? 1n : 0n);
-  const lastLedgerId = firstLedgerId + BigInt(CANONICAL_IDENTITY_TAIL.length - 1);
+  const lastLedgerId = firstLedgerId + BigInt(expectedTail.length - 1);
   requireCondition(firstLedgerId >= BigInt(profile.ledgerSequence.minimum) && lastLedgerId <= BigInt(profile.ledgerSequence.maximum), 'CANONICAL_LEDGER_SEQUENCE_EXHAUSTED');
-  requireCondition(equal(transition.ledgerTail, CANONICAL_IDENTITY_TAIL.map((entry, index) => ({
+  requireCondition(equal(transition.ledgerTail, expectedTail.map((entry, index) => ({
     id: (firstLedgerId + BigInt(index)).toString(), hash: entry.hash, created_at: entry.created_at,
   }))), 'CANONICAL_LEDGER_APPEND_DIFFERS');
   for (const sequence of before.rows.sequences) {
@@ -426,5 +464,6 @@ export function compareCanonicalIdentityTransition({ before, after, sourceTransi
   }
   return { profile: profile.profile, checks: { sourceSchema: true, targetSchema: true, allColumns: true, savedRows: true,
     legacyAliases: true, uuidAssignments: true, frozenAnchors: true, replayBoundary: true, layoutNormalization: true,
-    fencingSeeds: true, existingLedgerRows: true, expectedLedgerAppend: true, deterministicPublicIds: true, sequences: true } };
+    fencingSeeds: true, existingLedgerRows: true, expectedLedgerAppend: true, deterministicPublicIds: true, sequences: true,
+    ...(profile.profile === WORKER_SLOT_RETIREMENT_PROFILE ? { workerSlotRetirement: true } : {}) } };
 }
