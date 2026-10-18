@@ -1,0 +1,3 @@
+ALTER TABLE "game_titles" ADD CONSTRAINT "game_titles_layout_family_check" CHECK ("game_titles"."layout_family" IN ('momotetsu_2','world','reiwa'));--> statement-breakpoint
+ALTER TABLE "match_drafts" ADD CONSTRAINT "match_drafts_layout_family_check" CHECK ("match_drafts"."layout_family" IS NULL OR "match_drafts"."layout_family" IN ('momotetsu_2','world','reiwa'));--> statement-breakpoint
+ALTER TABLE "matches" ADD CONSTRAINT "matches_layout_family_check" CHECK ("matches"."layout_family" IN ('momotetsu_2','world','reiwa'));

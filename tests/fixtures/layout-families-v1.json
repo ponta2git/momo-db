@@ -1,0 +1,60 @@
+{
+  "description": "Trim ASCII whitespace at the edges and fold ASCII case. Missing layout hints select automatically. Existing hint payloads retain their original spelling.",
+  "accepted": [
+    {
+      "input": "momotetsu_2",
+      "canonical": "momotetsu_2"
+    },
+    {
+      "input": "momotetsu2",
+      "canonical": "momotetsu_2"
+    },
+    {
+      "input": "2",
+      "canonical": "momotetsu_2"
+    },
+    {
+      "input": "world",
+      "canonical": "world"
+    },
+    {
+      "input": "momotetsu_world",
+      "canonical": "world"
+    },
+    {
+      "input": "default",
+      "canonical": "world"
+    },
+    {
+      "input": "reiwa",
+      "canonical": "reiwa"
+    },
+    {
+      "input": "momotetsu_reiwa",
+      "canonical": "reiwa"
+    },
+    {
+      "input": " MoMoTeTsU2\t",
+      "canonical": "momotetsu_2"
+    },
+    {
+      "input": "\r\nMOMOTETSU_WORLD\f\u000b",
+      "canonical": "world"
+    },
+    {
+      "input": " REIWA ",
+      "canonical": "reiwa"
+    }
+  ],
+  "rejected": [
+    "",
+    " ",
+    "auto",
+    "unknown",
+    "japan",
+    "world-v2",
+    "World DX",
+    "momotetsu_3",
+    " world"
+  ]
+}
