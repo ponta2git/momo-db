@@ -1,4 +1,5 @@
 import {
+  check,
   index,
   integer,
   pgTable,
@@ -6,6 +7,7 @@ import {
   timestamp,
   uniqueIndex
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { members } from "./identity.js";
 
 // momo-result の作品・マップ・シーズン・事件とメンバー別名のマスター。
@@ -25,7 +27,10 @@ export const gameTitles = pgTable(
       .notNull()
       .defaultNow()
   },
-  (table) => [uniqueIndex("game_titles_name_unique").on(table.name)]
+  (table) => [
+    uniqueIndex("game_titles_name_unique").on(table.name),
+    check("game_titles_layout_family_check", sql`${table.layoutFamily} IN ('momotetsu_2','world','reiwa')`)
+  ]
 );
 
 // source-of-truth: マップ。作品ごとに別マップを持つため (gameTitleId, name) で unique。
