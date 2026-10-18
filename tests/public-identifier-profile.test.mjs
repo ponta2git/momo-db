@@ -202,9 +202,9 @@ test('source schema must equal the fresh fixed prefix before any transformation 
 
 test('reviewed source-only diagnostic function is retained exactly, never excluded from schema comparison', async t => {
   await withDatabase(async reference => {
-    await withPrefix(folder => migrate(drizzle(reference), { migrationsFolder: folder }));
+    await withHistory(72, folder => migrate(drizzle(reference), { migrationsFolder: folder }));
     const referenceBefore = await snapshot(reference);
-    await migrate(drizzle(reference), { migrationsFolder: './drizzle' });
+    await withHistory(77, folder => migrate(drizzle(reference), { migrationsFolder: folder }));
     const referenceAfter = await snapshot(reference);
     await withDatabase(async source => {
       await sourceFixture(source);
@@ -213,7 +213,7 @@ test('reviewed source-only diagnostic function is retained exactly, never exclud
       const retainedProfile = createPublicIdentifierProfile({ history, referenceBefore, referenceAfter, sourceSchema: before.schema });
       assert.deepEqual(retainedProfile.retainedFunctions, [{ schema: 'public', name: 'show_db_tree', arguments: '',
         digest: '9a54f3362bfa1de93ad2f316e41e8374fe7fe6672c1dfe2706f484d737bc9215' }]);
-      await migrate(drizzle(source), { migrationsFolder: './drizzle' });
+      await withHistory(77, folder => migrate(drizzle(source), { migrationsFolder: folder }));
       const captured = await snapshot(source, retainedProfile);
       assert.equal(comparePublicIdentifierTransition({ before, ...captured, profile: retainedProfile }).checks.targetSchema, true);
       await t.test('unknown additions and modified diagnostic definitions cannot become expected source objects', async () => {
