@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { createServer, createConnection } from 'node:net';
@@ -8,14 +8,17 @@ import { Readable, Writable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import pg from 'pg';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createWorkspace, createKey, loadKey, privateDirectory, privateFile,
   encryptStream, decryptStream, readJson, writeJson, withRunLock, digest, fileDigest } from '../scripts/migration/files.mjs';
 import { command } from '../scripts/migration/process.mjs';
 import { databaseLocation, connect, historyState, fingerprint, compareFingerprints, inspectConnection, inspectServer, compareDatabaseLocale } from '../scripts/migration/database.mjs';
 import { inventoryClient } from '../scripts/migration/sql-client.mjs';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
-import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection, localInitdbArguments } from '../scripts/migration/local.mjs';
-import { main, runAction, compareMigration } from '../scripts/migration/run.mjs';
+import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection, localInitdbArguments, relayArguments } from '../scripts/migration/local.mjs';
+import { main, runAction, compareMigration, parseArguments } from '../scripts/migration/run.mjs';
 import { expectedMigrationHistory } from '../scripts/check-migration-history.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
@@ -316,7 +319,7 @@ test('owned-container guards reject wrong identities, persistence and network ta
   });
 });
 
-async function withRunnerCommands(run) {
+async function withRunnerCommands(run, repository = process.cwd()) {
   await withDirectory(async directory => {
     const headPath = join(directory, 'candidate-head');
     const logPath = join(directory, 'migrator-calls.jsonl');
@@ -342,8 +345,8 @@ async function withRunnerCommands(run) {
     process.env.PATH = directory + delimiter + previous;
     try {
       await run({
-        candidate: { sha, migrationDigest: digest(expectedMigrationHistory(join(process.cwd(), 'drizzle'))),
-          lockDigest: await fileDigest(join(process.cwd(), 'pnpm-lock.yaml')) },
+        candidate: { sha, migrationDigest: digest(expectedMigrationHistory(join(repository, 'drizzle'))),
+          lockDigest: await fileDigest(join(repository, 'pnpm-lock.yaml')) },
         changeCandidate: () => writeFile(headPath, 'f'.repeat(40), { mode: 0o600 }),
         migratorCalls: async () => (await readFile(logPath, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)),
       });
@@ -385,6 +388,116 @@ test('a valid encrypted report from another snapshot cannot authorize a restore'
       assert.deepEqual(await calls(), []);
     });
   }));
+});
+
+test('a final frozen run cannot use the ordinary runner without the same live stop guard', async () => {
+  await withDirectory(async directory => withRunnerCommands(async commands => {
+    const key = randomBytes(32);
+    const manifest = { candidate: commands.candidate, finalFreeze: { stopEpoch: 1 }, state: 'prepared' };
+    const save = () => assert.fail('no state or database change is permitted');
+    await assert.rejects(runAction('snapshot', manifest, directory, key, save),
+      codeIs('FINAL_REHEARSAL_REQUIRES_LIVE_FREEZE_GUARD'));
+    await assert.rejects(runAction('snapshot', manifest, directory, key, save, { freezeGuard: async () => ({ stopEpoch: 2 }) }),
+      codeIs('FINAL_FREEZE_CHANGED'));
+    assert.equal(manifest.state, 'prepared');
+  }));
+});
+
+test('relay variants require EOF to release the PostgreSQL peer connection', () => {
+  assert.deepEqual(relayArguments('OpenBSD netcat\n-N Shutdown the network socket after EOF'), ['-N']);
+  assert.deepEqual(relayArguments('BusyBox v1.37.0\nUsage: nc [OPTIONS] HOST PORT'), []);
+  for (const help of ['', 'nc: not found', 'OpenBSD netcat without a supported shutdown option', 'unknown netcat']) {
+    assert.throws(() => relayArguments(help), codeIs('POSTGRES_IMAGE_RELAY_VARIANT_UNSUPPORTED'));
+  }
+});
+
+// The superseded public-ID profile still runs its real migrator against its
+// exact historical candidate; newer tails keep their independent migration tests.
+async function withPublicIdentifierCandidate(run) {
+  const source = process.cwd();
+  return withDirectory(async repository => {
+    for (const path of ['drizzle', 'scripts', 'src', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'drizzle.config.ts']) {
+      await cp(join(source, path), join(repository, path), { recursive: true });
+    }
+    await symlink(join(source, 'node_modules'), join(repository, 'node_modules'), 'dir');
+    const path = join(repository, 'drizzle/meta/_journal.json');
+    const journal = JSON.parse(await readFile(path, 'utf8'));
+    await writeFile(path, JSON.stringify({ ...journal, entries: journal.entries.slice(0, 78) }));
+    const { runAction } = await import(join(repository, 'scripts/migration/run.mjs'));
+    return run({ repository, runAction });
+  });
+}
+
+test('explicit public identifier profile builds a fresh reference and verifies the complete runner transition', async t => {
+  assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', 'public-identifiers-v1']).options.profile,
+    'public-identifiers-v1');
+  for (const args of [['verify', '--profile', 'public-identifiers-v1'], ['prepare', '--profile', 'unknown']]) {
+    assert.throws(() => parseArguments([...args, '--key-file', '/private/key']), codeIs('INVALID_REHEARSAL_PROFILE'));
+  }
+  await withPublicIdentifierCandidate(async ({ repository, runAction }) =>
+    withDirectory(async directory => withRunnerCommands(async commands => {
+    const key = randomBytes(32);
+    const manifest = { formatVersion: 1, runId: randomUUID(), candidate: commands.candidate,
+      postgres: { id: await command('docker', ['inspect', '--format', '{{.Image}}', process.env.MOMO_DB_TEST_CONTAINER]) },
+      profile: 'public-identifiers-v1', state: 'restored', local: null, checks: {}, incomplete: [], durationsMs: {} };
+    const save = () => writeJson(join(directory, 'manifest.json.enc'), manifest, key);
+    const capture = async database => {
+      const sql = connect(localUrl(manifest, database));
+      try {
+        return await sql.begin('isolation level repeatable read read only', async transaction => ({
+          connection: await inspectConnection(transaction, repository),
+          schema: await inspectSchema(transaction), rows: await fingerprint(transaction),
+        }));
+      } finally { await sql.end(); }
+    };
+    try {
+      await startLocal(manifest, save, { server: { ...builtinLocale, collation: 'C', ctype: 'C' } });
+      await withLocalConnection(manifest, async () => {
+        const folder = join(directory, 'fixture-prefix');
+        await cp(join(repository, 'drizzle'), folder, { recursive: true });
+        const journal = JSON.parse(await readFile(join(folder, 'meta/_journal.json'), 'utf8'));
+        await writeFile(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: journal.entries.slice(0, 73) }));
+        const baseline = postgres(localUrl(manifest, 'momo_rehearsal_baseline'), { max: 1, prepare: false, onnotice() {} });
+        try {
+          await migrate(drizzle(baseline), { migrationsFolder: folder });
+          await baseline`INSERT INTO held_events(id, held_date_iso, start_at) VALUES ('legacy-identifier', '2026-01-01', '2026-01-01T00:00:00Z')`;
+        } finally { await baseline.end(); }
+        const before = await capture('momo_rehearsal_baseline');
+        manifest.baselineDigest = digest(before);
+        await writeJson(join(directory, 'baseline.json.enc'), before, key);
+        await save();
+        await runAction('rehearse', manifest, directory, key, save);
+        assert.equal(manifest.state, 'verified');
+        for (const name of ['freshReference', 'migratorFirstRun', 'migratorNoop', 'migration', 'migrationSchema', 'savedRows']) {
+          assert.equal(manifest.checks[name], true, name);
+        }
+        assert.equal((await commands.migratorCalls()).length, 3, 'reference plus two candidate migrator invocations');
+        assert.deepEqual(await capture('momo_rehearsal_baseline'), before, 'baseline changed during reference or migration');
+        const profile = await readJson(join(directory, 'profile.json.enc'), key);
+        assert.equal(profile.history.entries.length, 78);
+        await runAction('verify', manifest, directory, key, save);
+        assert.equal((await commands.migratorCalls()).length, 3, 'verify must not replay the migrator');
+        await createDatabase(manifest, 'momo_rehearsal_smoke', 'momo_rehearsal_migration');
+        const smoke = await capture('momo_rehearsal_smoke');
+        const migrated = await capture('momo_rehearsal_migration');
+        assert.deepEqual(smoke.rows, migrated.rows);
+        assert.deepEqual(smoke.schema, migrated.schema);
+        assert.deepEqual(smoke.connection.ledger, migrated.connection.ledger);
+
+        await t.test('missing reference evidence cannot reuse a previously created reference database', async () => {
+          delete manifest.profileDigest;
+          await assert.rejects(runAction('rehearse', manifest, directory, key, save), codeIs('EXISTING_REFERENCE_REQUIRES_FRESH_RUN'));
+          assert.equal((await commands.migratorCalls()).length, 3);
+          manifest.profileDigest = digest(profile);
+        });
+        await t.test('a changed reference report is rejected before candidate mutation', async () => {
+          await writeJson(join(directory, 'profile.json.enc'), { ...profile, schemaBefore: {} }, key);
+          await assert.rejects(runAction('rehearse', manifest, directory, key, save), codeIs('REPORT_DIGEST_MISMATCH'));
+          assert.equal((await commands.migratorCalls()).length, 3);
+        });
+      });
+    } finally { await cleanupLocal(manifest, save); }
+  }, repository)));
 });
 
 test('owned database retries inspect committed work, verify schemas and prove a second migrator is a no-op', async t => {
