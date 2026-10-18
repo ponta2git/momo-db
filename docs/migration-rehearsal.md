@@ -56,6 +56,26 @@ pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/mani
 
 実行中は private run lock を保持する。異常終了した lock は TTL で自動解除しない。残存 process と所有資源を確認してから管理者が解除する。migration 結果が不明なときは ledger を読み取り確認し、盲目的に再適用しない。
 
+## アプリケーション権限の再現
+
+consumer の業務 gate 前に、実行中の API / worker / Summit 全 instance の DB login role と boot を確認し、接続先の source schema / ledger とともに権限を監査する。接続 URL 全体は採取せず、process 内で role 名だけを取り出す。instance の設定・boot が監査前後で一致しなければ取り直す。`captureApplicationRoleAudit` はその観測一覧を受け取り、read-only transaction 内で schema、ledger、role 属性・membership、DB / schema / table / column / sequence / function の実効権限を収集する。返した監査は同じ run の鍵で暗号化した `source-role-audit.json.enc` として private に保存する。通常の dump だけではこの観測の代わりにならない。
+
+現在の mapper は、全 consumer と migration が同じ非 superuser の application owner を使い、`public` / `drizzle` の全 table、sequence、function を所有する契約を対象とする。source の schema / ledger digest、全 object と column の権限を照合し、RLS、SECURITY DEFINER、複数 role、部分権限、未知の schema / type、role 設定があれば停止する。その場合は対象に合う mapping を別途レビューする。
+
+```sh
+pnpm migration:rehearsal application-role \
+  --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc \
+  --key-file /private/tmp/momo-rehearsal-secrets/source.key \
+  --role-audit /private/tmp/momo-rehearsal-secrets/source-role-audit.json.enc \
+  --copy smoke
+```
+
+`smoke` は検証済み migration copy から専用 DB を作り、`recovery` は検証済みの復旧 copy を使う。保存行と sequence を既存の検証証拠と照合してから、run 固有 role へ DB と object の owner を対応付ける。role 属性は監査値を再現し、`public` の owner は source と同じ `pg_database_owner` とする。実際の application login で実効権限・全保存値・sequence の不変性を読み戻し、暗号化した `application-role-<copy>.json.enc` に結果を残す。baseline / migration copy は対象にできない。
+
+最終停止後の run では、`pnpm maintenance:rehearsal application-role --run <final-run> --key <key> --role-audit <encrypted-audit> --copy smoke`（または `recovery`）を使う。各変更前後に同じ停止世代を確認する。通常 CLI から final run の guard を省く操作は拒否する。
+
+この証拠は application DB 内の実効権限の再現を表す。provider の管理権限や cluster membership は元監査に記録し、ローカルで再現したとは扱わない。`applicationRoleMapping` が true でも業務処理は未実行なので、`application-role-behavior` は残す。consumer の読み書き、function / trigger、画像・通知先を含む別 gate の実行結果が必要である。
+
 ## 証拠の範囲
 
 初期 CLI の `checks` は DB のコピー・比較結果を表し、統合計画全体の完了ではない。必ず `incomplete` も確認する。
