@@ -64,6 +64,7 @@ pnpm build
 | `pnpm maintenance:freeze <command>` | 全 writer の drain・永続停止・停止継続の検査 |
 | `pnpm maintenance:rehearsal <command>` | 停止後の backup・最終リハーサル・受入証拠を同じ停止世代へ結び付ける |
 | `pnpm maintenance:resume <command>` | 再開境界を先に記録し、固定構成を通常起動へ戻して安定確認を登録する |
+| `pnpm maintenance:preparation-repair <command>` | 候補未固定の PREPARING で Runtime 接続証跡だけを[限定修復](docs/preparation-runtime-repair.md)する |
 
 ## ローカル開発（postgres コンテナ使用）
 

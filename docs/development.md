@@ -108,6 +108,8 @@ master push では CI が build と `drizzle-kit check`、通知契約と既存 
 
 通常運用・停止切替とも承認や preflight を迂回しない。停止期間中に通常 master の古い workflow を再実行しても mutation できないよう、既存 environment の許可 ref と既承認 job の停止を実環境で確認する。コード上の guard だけをこの確認の代わりにしない。
 
+候補未固定の `PREPARING` で準備 release の Runtime 接続証跡だけを補う場合は、[専用の準備修復手順](preparation-runtime-repair.md)に限定する。旧 schema / 全 ledger、Worker / Summit、既存承認経路を維持して Runtime image のみを修復し、完了時に epoch を進める。この操作は DB 適用・writer 停止・通常 deploy の許可を与えない。
+
 ### CI を復旧できない場合の緊急適用
 
 CI 自体を復旧できない緊急時に限り、同じ変更内容への明示承認と復元確認済み backup を揃え、承認対象 commit から手動適用できる。`DIRECT_URL` は実値を表示せず安全に環境変数へ注入し、preflight が成功した場合だけ migrate を実行する。
