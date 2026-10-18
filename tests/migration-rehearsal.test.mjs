@@ -398,9 +398,10 @@ test('relay variants require EOF to release the PostgreSQL peer connection', () 
   }
 });
 
-test('explicit public identifier profile builds a fresh reference and verifies the complete runner transition', async t => {
-  assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', 'public-identifiers-v1']).options.profile,
-    'public-identifiers-v1');
+test('explicit canonical identity profile builds a fresh reference and verifies the complete runner transition', async t => {
+  for (const profile of ['public-identifiers-v1', 'canonical-identities-v1']) {
+    assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', profile]).options.profile, profile);
+  }
   for (const args of [['verify', '--profile', 'public-identifiers-v1'], ['prepare', '--profile', 'unknown']]) {
     assert.throws(() => parseArguments([...args, '--key-file', '/private/key']), codeIs('INVALID_REHEARSAL_PROFILE'));
   }
@@ -408,7 +409,7 @@ test('explicit public identifier profile builds a fresh reference and verifies t
     const key = randomBytes(32);
     const manifest = { formatVersion: 1, runId: randomUUID(), candidate: commands.candidate,
       postgres: { id: await command('docker', ['inspect', '--format', '{{.Image}}', process.env.MOMO_DB_TEST_CONTAINER]) },
-      profile: 'public-identifiers-v1', state: 'restored', local: null, checks: {}, incomplete: [], durationsMs: {} };
+      profile: 'canonical-identities-v1', state: 'restored', local: null, checks: {}, incomplete: [], durationsMs: {} };
     const save = () => writeJson(join(directory, 'manifest.json.enc'), manifest, key);
     const capture = async database => {
       const sql = connect(localUrl(manifest, database));
@@ -437,13 +438,17 @@ test('explicit public identifier profile builds a fresh reference and verifies t
         await save();
         await runAction('rehearse', manifest, directory, key, save);
         assert.equal(manifest.state, 'verified');
-        for (const name of ['freshReference', 'migratorFirstRun', 'migratorNoop', 'migration', 'migrationSchema', 'savedRows']) {
+        for (const name of ['freshReference', 'migratorFirstRun', 'migratorNoop', 'migration', 'migrationSchema', 'savedRows', 'canonicalIdentityProjection']) {
           assert.equal(manifest.checks[name], true, name);
         }
         assert.equal((await commands.migratorCalls()).length, 3, 'reference plus two candidate migrator invocations');
         assert.deepEqual(await capture('momo_rehearsal_baseline'), before, 'baseline changed during reference or migration');
         const profile = await readJson(join(directory, 'profile.json.enc'), key);
-        assert.equal(profile.history.entries.length, 78);
+        assert.equal(profile.history.entries.length, 94);
+        const sourceTransition = await readJson(join(directory, 'canonical-source.json.enc'), key);
+        assert.equal(sourceTransition.baselineDigest, manifest.baselineDigest);
+        assert.equal(sourceTransition.profileDigest, profile.profileDigest);
+        assert.equal(digest(sourceTransition), manifest.sourceTransitionDigest);
         await runAction('verify', manifest, directory, key, save);
         assert.equal((await commands.migratorCalls()).length, 3, 'verify must not replay the migrator');
         await createDatabase(manifest, 'momo_rehearsal_smoke', 'momo_rehearsal_migration');
@@ -452,6 +457,17 @@ test('explicit public identifier profile builds a fresh reference and verifies t
         assert.deepEqual(smoke.rows, migrated.rows);
         assert.deepEqual(smoke.schema, migrated.schema);
         assert.deepEqual(smoke.connection.ledger, migrated.connection.ledger);
+
+        await t.test('changed or foreign source projections cannot verify a canonical target', async () => {
+          const changed = { ...sourceTransition, baselineDigest: '0'.repeat(64) };
+          await writeJson(join(directory, 'canonical-source.json.enc'), changed, key);
+          await assert.rejects(runAction('verify', manifest, directory, key, save), codeIs('REPORT_DIGEST_MISMATCH'));
+          manifest.sourceTransitionDigest = digest(changed);
+          await assert.rejects(runAction('verify', manifest, directory, key, save), codeIs('CANONICAL_SOURCE_TRANSITION_MISMATCH'));
+          await writeJson(join(directory, 'canonical-source.json.enc'), sourceTransition, key);
+          manifest.sourceTransitionDigest = digest(sourceTransition);
+          assert.equal((await commands.migratorCalls()).length, 3);
+        });
 
         await t.test('missing reference evidence cannot reuse a previously created reference database', async () => {
           delete manifest.profileDigest;

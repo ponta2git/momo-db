@@ -58,6 +58,12 @@ pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/mani
 
 この profile で許容する保存値の差分は、`held_events.public_id` と `matches.public_id` の追加だけである。旧 ID の UTF-8 byte 順から求めた連番、最大番号の次を返す identity sequence、既存 ledger 行の不変性と正確な五行の追加を検査する。ほかの列・全 table・schema・既存 sequence は比較対象から除外しない。追加の tail は別 profile が必要になる。
 
+UUID への停止切替 `0073`〜`0093` には `--profile canonical-identities-v1` を指定する。旧 ledger は同じ `0072` prefix とし、公開番号・fencing counter・layout 正規化・明示的な analysis transition・canonical identity の固定 tail と[列契約](contracts/canonical-identities-v1.json)の digest を検査する。public profile と同じ方法で、空の reference DB に正規 migrator から移行前後の完全な schema を作る。`worker_execution_slots` はこの候補では保持する。slot の削除や追加の tail をこの profile で許可しない。
+
+canonical profile は全 source / target column に検証方法を割り当て、未対応列・余分な列・欠落した legacy 列を拒否する。旧列は明示的な SELECT projection で再構成する。ID は保存した legacy 列または FK 先の exact legacy alias を使い、JSONB の数値・bytea・時刻は PostgreSQL 内で hash にする。109 個の変換列と anchor の UUID は別に JavaScript の typed mapping と照合し、47 個の legacy 列、NULL の組、参照、凍結 source の全行を検証する。比較対象から列を単に削除する方法は使わない。
+
+layout の三列だけは、基準 audit と同じ read-only snapshot で既知 alias の正規化結果を hash にし、移行後と比較する。この証拠は baseline と profile の digest に結び付けて `canonical-source.json.enc` に保存する。anchor は元の凍結 source との旧 ID / title の全行対応と二つの UUID を確認する。旧 HTTP replay は rename 後の全列・全 bytes が同一、新しい UUID replay table は空であることを確認する。公開番号の byte 順、sequence の次値、counter の `max(0, global slot, active lease, attempts)`、元 ledger 行と正確な追加行もそれぞれ検証する。保存済み notification、artifact、radar payload は値を書き換えずに比較する。
+
 実データ copy で見つかった migration 管理外の `public.show_db_tree()` は、catalog を読み取る診断関数として定義を確認し、identity と全構造 digest を固定して保全する。存在する場合は移行前後の期待 schema に同じ関数を含めるため、削除・定義変更も不一致になる。それ以外の未知の追加関数や、管理対象 schema の差は許容しない。既存 DB の変更や関数の作り直しは行わない。
 
 ローカル PostgreSQL は run 固有 label、固定 image ID、internal / isolated network、tmpfs のみを使い、port を公開しない。各 command の間だけ host の 127.0.0.1 へ一時 TCP relay を開き、所有確認した container 内の `nc` へ接続する。relay の socket・子 process は終了時に回収し、port は manifest へ保存しない。restore と cleanup は実体を毎回再確認する。任意 DB URL、保存対象 `summit-postgres`、named volume、bind mount は対象にできない。上限は container memory 3 GiB / PGDATA 2 GiB なので、複数 copy が収まらない場合は容量設計を改訂して候補を作り直す。
@@ -73,7 +79,7 @@ pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/mani
 - locale 名だけでなく provider・rules・記録済み / 実際の collation version を比較する。source の builtin / libc 設定で初期化し、復元前に一致を確認する。version drift、未対応の ICU 等は停止し、名前の正規化だけで同一とみなさない。
 - constraint は元の定義を private inventory に保持し、比較には PostgreSQL 自身の deparser で不要な括弧を抑えた表現を使う。dump / restore に伴う同じ AND 条件の括弧差だけで失敗させず、AND / OR の優先順位や条件変更は検出する。この比較表現を復元用 SQL としては使わない。
 - 稼働中の snapshot では sequence は MVCC に従わない。sequence の元 DB と同時点の保全や停止継続は証明しない。二つの復元 copy 間では identity sequence を含め一致を検査する。
-- 既定の `preserve-v1` comparator は schema・アプリ保存値の変更を一切許容せず、pending tail がある場合は適用前に停止する。`public-identifiers-v1` の許容差分は上記に限定する。さらに ID 等を変換する場合は期待 schema・列別 mapping と専用 comparator を追加し、その候補で再リハーサルする。
+- 既定の `preserve-v1` comparator は schema・アプリ保存値の変更を一切許容せず、pending tail がある場合は適用前に停止する。`public-identifiers-v1` と `canonical-identities-v1` の許容差分は、それぞれ上記の固定 tail と列別契約に限定する。候補を拡張する場合は期待 schema・列別 mapping と専用 comparator を更新し、その候補で再リハーサルする。
 - 新規の移行 copy では正規 migrator を再実行し、二回目が schema・ledger・保存値・sequence を変えないことまで検証する。途中終了後の既存 copy は読取り比較で分類し、再適用しない。二回目実行の証拠が残っていなければ未確認として fresh run を求める。
 - consumer の smoke、別 DB への実接続切替、画像本体、停止直後の最終 snapshot、本番承認・適用・再開は別の証拠が必要である。
 

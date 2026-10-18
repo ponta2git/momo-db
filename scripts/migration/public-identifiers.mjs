@@ -23,7 +23,7 @@ const key = value => JSON.stringify([value.schema, value.name]);
 const ledgerTable = { schema: 'drizzle', name: '__drizzle_migrations' };
 // Reviewed source-only catalog viewer. Preserve its exact definition and every
 // structural attribute; this is not an exclusion from before/after comparison.
-const retainedFunctions = Object.freeze([Object.freeze({ schema: 'public', name: 'show_db_tree', arguments: '',
+export const retainedFunctions = Object.freeze([Object.freeze({ schema: 'public', name: 'show_db_tree', arguments: '',
   digest: '9a54f3362bfa1de93ad2f316e41e8374fe7fe6672c1dfe2706f484d737bc9215' })]);
 const functionKey = value => JSON.stringify([value.schema, value.name, value.arguments]);
 const identifier = (sql, name) => sql.unsafe('"' + name.replaceAll('"', '""') + '"');
@@ -89,7 +89,7 @@ function sequenceForColumn(schema, table, column) {
   return matches[0];
 }
 
-function assertReferenceShape(before, after) {
+export function assertReferenceShape(before, after) {
   for (const name of targets) {
     const previous = entryByName(before.tables, { schema: 'public', name }, 'PUBLIC_IDENTIFIER_REFERENCE_TABLE_MISSING');
     const target = entryByName(after.tables, { schema: 'public', name }, 'PUBLIC_IDENTIFIER_REFERENCE_TABLE_MISSING');
@@ -133,7 +133,7 @@ function validateProfile(profile) {
   requireCondition(equal(assertReferenceShape(profile.schemaBefore, profile.schemaAfter), profile.ledgerSequence), 'PUBLIC_IDENTIFIER_PROFILE_CHANGED');
 }
 
-function retainReviewedFunctions(schemaBefore, schemaAfter, sourceSchema) {
+export function retainReviewedFunctions(schemaBefore, schemaAfter, sourceSchema) {
   if (!sourceSchema) return { schemaBefore, schemaAfter, retainedFunctions: [] };
   const source = schemaStructure(sourceSchema);
   const managed = new Set(schemaBefore.functions.map(functionKey));
@@ -173,7 +173,7 @@ export function createPublicIdentifierProfile({ history, referenceBefore, refere
   return { ...body, profileDigest: digest(body) };
 }
 
-async function rowFingerprint(sql, table, source, projection) {
+export async function rowFingerprint(sql, table, source, projection) {
   const hash = createHash('sha256');
   let count = 0n;
   for await (const rows of sql`SELECT encode(sha256(convert_to((${projection})::text, 'UTF8')), 'hex') COLLATE "C" AS value

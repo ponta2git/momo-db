@@ -13,6 +13,9 @@ import { schemaStructure } from './schema.mjs';
 export { schemaStructure } from './schema.mjs';
 import { PUBLIC_IDENTIFIER_PROFILE, PUBLIC_IDENTIFIER_SOURCE_LENGTH, loadPublicIdentifierHistory,
   createPublicIdentifierProfile, inspectPublicIdentifierTransition, comparePublicIdentifierTransition } from './public-identifiers.mjs';
+import { CANONICAL_IDENTITY_PROFILE, CANONICAL_IDENTITY_SOURCE_LENGTH, loadCanonicalIdentityHistory,
+  createCanonicalIdentityProfile, inspectCanonicalSource, inspectCanonicalIdentityTransition,
+  compareCanonicalIdentityTransition } from './canonical-identities.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
   writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
@@ -36,7 +39,7 @@ export function parseArguments(args) {
   requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
   requireCondition(isAbsolute(options['key-file'] ?? ''), 'ABSOLUTE_KEY_PATH_REQUIRED');
   requireCondition(!options['snapshot-manifest'] || (action === 'prepare' && !options['source-config']), 'SNAPSHOT_IMPORT_ONLY_FOR_PREPARE');
-  requireCondition(!options.profile || (action === 'prepare' && ['preserve-v1', PUBLIC_IDENTIFIER_PROFILE].includes(options.profile)), 'INVALID_REHEARSAL_PROFILE');
+  requireCondition(!options.profile || (action === 'prepare' && ['preserve-v1', PUBLIC_IDENTIFIER_PROFILE, CANONICAL_IDENTITY_PROFILE].includes(options.profile)), 'INVALID_REHEARSAL_PROFILE');
   return { action, options };
 }
 
@@ -65,7 +68,8 @@ async function audit(sql, { identifiers = false, sequences = true, profile } = {
   requireCondition(objects === '0', 'LARGE_OBJECT_REQUIRES_COMPARATOR');
   const result = { connection, schema, rows: await fingerprint(sql, { sequences }) };
   if (identifiers) result.identifiers = await inspectIdentifierValues(sql, schema);
-  if (profile) result.transition = await inspectPublicIdentifierTransition(sql, profile);
+  if (profile) result.transition = profile.profile === CANONICAL_IDENTITY_PROFILE
+    ? await inspectCanonicalIdentityTransition(sql, profile) : await inspectPublicIdentifierTransition(sql, profile);
   return result;
 }
 
@@ -107,6 +111,7 @@ function summary(manifest) {
 export async function runAction(action, manifest, directory, key, save, { signal } = {}) {
   const report = name => resolve(directory, `${name}.json.enc`);
   const archive = resolve(directory, 'source.dump.enc');
+  let sourceTransition;
   const beforeMutation = async () => {
     requireCondition(!signal?.aborted, 'REHEARSAL_INTERRUPTED');
     await assertCandidate(manifest);
@@ -129,34 +134,38 @@ export async function runAction(action, manifest, directory, key, save, { signal
   };
   const migrationProfile = async before => {
     const selected = manifest.profile ?? 'preserve-v1';
-    requireCondition(['preserve-v1', PUBLIC_IDENTIFIER_PROFILE].includes(selected), 'INVALID_REHEARSAL_PROFILE');
+    requireCondition(['preserve-v1', PUBLIC_IDENTIFIER_PROFILE, CANONICAL_IDENTITY_PROFILE].includes(selected), 'INVALID_REHEARSAL_PROFILE');
     if (selected === 'preserve-v1') {
       requireCondition(before.connection.pending.length === 0, 'PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR');
       return null;
     }
-    const history = await loadPublicIdentifierHistory(repository);
-    requireCondition(digest(before.connection.ledger) === digest(history.entries.slice(0, PUBLIC_IDENTIFIER_SOURCE_LENGTH)),
-      'PUBLIC_IDENTIFIER_SOURCE_LEDGER_DIFFERS');
+    const canonical = selected === CANONICAL_IDENTITY_PROFILE;
+    const history = await (canonical ? loadCanonicalIdentityHistory : loadPublicIdentifierHistory)(repository);
+    const prefixLength = canonical ? CANONICAL_IDENTITY_SOURCE_LENGTH : PUBLIC_IDENTIFIER_SOURCE_LENGTH;
+    requireCondition(digest(before.connection.ledger) === digest(history.entries.slice(0, prefixLength)),
+      canonical ? 'CANONICAL_SOURCE_LEDGER_DIFFERS' : 'PUBLIC_IDENTIFIER_SOURCE_LEDGER_DIFFERS');
     if (manifest.profileDigest) {
       const profile = await readReport('profile', manifest.profileDigest);
       requireCondition(profile.history?.migrationDigest === history.migrationDigest, 'REHEARSAL_PROFILE_CANDIDATE_CHANGED');
-      requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
+      requireCondition(profile.profile === selected, 'REHEARSAL_PROFILE_CANDIDATE_CHANGED');
+      requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), canonical ? 'CANONICAL_SOURCE_SCHEMA_DIFFERS' : 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
       return profile;
     }
     requireCondition(action === 'rehearse', 'VERIFIED_REFERENCE_PROFILE_REQUIRED');
     const references = await createMigrationReferences({ manifest, directory, repository,
-      prefixLength: PUBLIC_IDENTIFIER_SOURCE_LENGTH, beforeMutation,
+      prefixLength, beforeMutation,
       capture: database => withDatabase(localUrl(manifest, database), sql => audit(sql)), migrateTarget: migrate });
-    const profile = createPublicIdentifierProfile({ history, ...references, sourceSchema: before.schema });
-    requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
+    const profile = (canonical ? createCanonicalIdentityProfile : createPublicIdentifierProfile)({ history, ...references, sourceSchema: before.schema });
+    requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), canonical ? 'CANONICAL_SOURCE_SCHEMA_DIFFERS' : 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
     manifest.profileDigest = await writeReport('profile', profile);
     manifest.checks.freshReference = true;
     await save();
     return profile;
   };
-  const compareTransition = (before, after, profile) => profile
-    ? comparePublicIdentifierTransition({ before, after, transition: after.transition, profile })
-    : compareMigration(before, after);
+  const compareTransition = (before, after, profile) => !profile ? compareMigration(before, after)
+    : profile.profile === CANONICAL_IDENTITY_PROFILE
+      ? compareCanonicalIdentityTransition({ before, after, sourceTransition, transition: after.transition, profile })
+      : comparePublicIdentifierTransition({ before, after, transition: after.transition, profile });
   if (action === 'status') return;
   if (action === 'cleanup') { await cleanupLocal(manifest, save); manifest.state = 'cleaned'; return; }
   await beforeMutation();
@@ -238,8 +247,19 @@ export async function runAction(action, manifest, directory, key, save, { signal
       requireCondition(['restored', 'migration-started', 'migrated', 'verified'].includes(manifest.state), 'RESTORED_BASELINE_REQUIRED');
       const before = await readReport('baseline', manifest.baselineDigest);
       const profile = await migrationProfile(before);
-      const baseline = await withDatabase(localUrl(manifest, baselineName), sql => audit(sql));
-      compareRestore(before, baseline, { sequences: true });
+      await withDatabase(localUrl(manifest, baselineName), async sql => {
+        const baseline = await audit(sql);
+        compareRestore(before, baseline, { sequences: true });
+        if (profile?.profile === CANONICAL_IDENTITY_PROFILE) sourceTransition = await inspectCanonicalSource(sql, profile, before);
+      });
+      if (sourceTransition) {
+        if (manifest.sourceTransitionDigest) requireCondition(digest(sourceTransition) === digest(await readReport('canonical-source', manifest.sourceTransitionDigest)),
+          'CANONICAL_SOURCE_TRANSITION_CHANGED');
+        else {
+          manifest.sourceTransitionDigest = await writeReport('canonical-source', sourceTransition);
+          await save();
+        }
+      }
       manifest.state = 'migration-started';
       await save();
       const existing = await databaseState(manifest, migrationName);
@@ -272,6 +292,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
       requireCondition(['migration-started', 'migrated', 'verified', 'recovery-verified'].includes(manifest.state), 'MIGRATION_REQUIRED');
       const before = await readReport('baseline', manifest.baselineDigest);
       const profile = await migrationProfile(before);
+      if (profile?.profile === CANONICAL_IDENTITY_PROFILE) sourceTransition ??= await readReport('canonical-source', manifest.sourceTransitionDigest);
       const after = await withDatabase(localUrl(manifest, migrationName), sql => audit(sql, { profile }));
       compareTransition(before, after, profile);
       if (manifest.migratedDigest) compareMigration(await readReport('migrated', manifest.migratedDigest), after);
@@ -285,6 +306,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
       manifest.checks.migration = true;
       manifest.checks.migrationSchema = true;
       manifest.checks.savedRows = true;
+      if (profile?.profile === CANONICAL_IDENTITY_PROFILE) manifest.checks.canonicalIdentityProjection = true;
       return;
     }
     if (action === 'recover-rehearsal') {
