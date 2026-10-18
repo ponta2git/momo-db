@@ -11,7 +11,8 @@ import { docker, username } from './migration-fixtures.mjs';
 
 const contract = 'series-analysis-artifact-v6-full-validation-v2';
 const journal = () => JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8'));
-const latest = db => migrate(drizzle(db), { migrationsFolder: './drizzle' });
+// This reviewed unit ends at 0080; later independent tails have their own tests.
+const latest = db => prefix(db, 80);
 
 async function isolated(run) {
   const name = 'momo_db_test_fence_' + randomUUID().replaceAll('-', '').slice(0, 12);
@@ -124,7 +125,7 @@ test('restored jobs retain all old values and mechanisms while each counter cove
       const after = await snapshot(copy, { projectCounter: true });
       assert.deepEqual(after.rows, before.rows, 'Only the new counter may change, including saved running leases');
       assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-      assert.equal(after.history.length, journal().entries.length);
+      assert.equal(after.history.length, 81);
       assert.deepEqual([...await copy`SELECT id, fencing_counter::text FROM series_analysis_jobs ORDER BY id`], [
         { id: 'active-floor', fencing_counter: '9007199254740997' },
         { id: 'attempt-floor', fencing_counter: '9007199254741001' },

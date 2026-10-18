@@ -86,6 +86,7 @@ export const matchDrafts = pgTable(
       .defaultNow()
   },
   (table) => [
+    check("match_drafts_layout_family_check", sql`${table.layoutFamily} IS NULL OR ${table.layoutFamily} IN ('momotetsu_2','world','reiwa')`),
     check(
       "match_drafts_status_check",
       sql`${table.status} IN ('ocr_running','ocr_failed','draft_ready','needs_review','confirmed','cancelled')`
@@ -182,6 +183,7 @@ export const matches = pgTable(
     noteUpdatedAt: timestamp("note_updated_at", { withTimezone: true })
   },
   (table) => [
+    check("matches_layout_family_check", sql`${table.layoutFamily} IN ('momotetsu_2','world','reiwa')`),
     uniqueIndex("matches_event_match_no_unique").on(
       table.heldEventId,
       table.matchNoInEvent
