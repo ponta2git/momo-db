@@ -1,4 +1,6 @@
 import {
+  uuid,
+  unique,
   check,
   index,
   integer,
@@ -18,7 +20,8 @@ import { members } from "./identity.js";
 export const gameTitles = pgTable(
   "game_titles",
   {
-    id: text("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
     name: text("name").notNull(),
     // why: OCR profile family と一致させる識別子。例: "momotetsu_2", "world", "reiwa"。
     layoutFamily: text("layout_family").notNull(),
@@ -28,6 +31,7 @@ export const gameTitles = pgTable(
       .defaultNow()
   },
   (table) => [
+    unique("game_titles_id_legacy_unique").on(table.id, table.legacyId),
     uniqueIndex("game_titles_name_unique").on(table.name),
     check("game_titles_layout_family_check", sql`${table.layoutFamily} IN ('momotetsu_2','world','reiwa')`)
   ]
@@ -37,8 +41,9 @@ export const gameTitles = pgTable(
 export const mapMasters = pgTable(
   "map_masters",
   {
-    id: text("id").primaryKey(),
-    gameTitleId: text("game_title_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
@@ -59,8 +64,9 @@ export const mapMasters = pgTable(
 export const seasonMasters = pgTable(
   "season_masters",
   {
-    id: text("id").primaryKey(),
-    gameTitleId: text("game_title_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
@@ -83,7 +89,8 @@ export const seasonMasters = pgTable(
 export const incidentMasters = pgTable(
   "incident_masters",
   {
-    id: text("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
     key: text("key").notNull(),
     displayName: text("display_name").notNull(),
     displayOrder: integer("display_order").notNull().default(0),
@@ -99,8 +106,9 @@ export const incidentMasters = pgTable(
 export const memberAliases = pgTable(
   "member_aliases",
   {
-    id: text("id").primaryKey(),
-    memberId: text("member_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    memberId: uuid("member_id")
       .notNull()
       .references(() => members.id, { onDelete: "cascade" }),
     alias: text("alias").notNull(),

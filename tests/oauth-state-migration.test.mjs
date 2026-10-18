@@ -1,3 +1,4 @@
+import { migrateLegacy, legacyIdentityMigrationCount } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -41,7 +42,7 @@ async function assertOAuthSchema(db) {
 
 test('fresh migration creates only the hashed-state key and indexed signed expiry', async () => {
   await withDatabase(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await migrateLegacy(db);
     await assertOAuthSchema(db);
   });
 });
@@ -51,7 +52,7 @@ test('OAuth expansion preserves every restored row, active session and migration
   try {
     cpSync('./drizzle', folder, { recursive: true });
     const journal = JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8'));
-    const expectedMigrationCount = journal.entries.length;
+    const expectedMigrationCount = legacyIdentityMigrationCount;
     journal.entries = journal.entries.filter(entry => entry.idx <= 70);
     writeFileSync(join(folder, 'meta', '_journal.json'), JSON.stringify(journal));
     await withDatabase(async (source, name) => {
@@ -64,7 +65,7 @@ test('OAuth expansion preserves every restored row, active session and migration
       await withDatabase(async (copy, restored) => {
         docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
         assert.deepEqual(await snapshotDatabase(copy), before);
-        await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+        await migrateLegacy(copy);
         const after = await snapshotDatabase(copy);
         assert.deepEqual(after.rows, { ...expectedFencingCounterRows(expectedPublicIdentifierRows(before.rows)), oauth_state_consumptions: [] });
         assert.deepEqual(after.history.slice(0, before.history.length), before.history);

@@ -1,6 +1,6 @@
 # canonical identity の切替契約
 
-この文書は consumer が実装する target schema と ID の保存契約を固定する。現時点では canonical schema migration を含まない。適用済み schema の説明や本番切替の許可ではなく、[正規開発手順](development.md)に従う migration と consumer gate の入力である。
+この文書は consumer が実装する target schema と ID の保存契約を固定する。`0083`〜`0093` の停止切替 tail がこの形を作る。本番切替の許可を表すものではなく、[正規開発手順](development.md)に従う migration と consumer gate の入力である。
 
 [列対応表](contracts/canonical-identities-v1.json)は `0080_snapshot.json` の全 public column を列挙し、型、変換先 entity、保持する旧列、既存 FK を記録する。実データの値・件数・運用状態は含めない。`drizzle.__drizzle_migrations` は通常 migrator の追記以外変更しない。public number と fencing counter は、それぞれの独立した契約を維持する。
 
@@ -110,3 +110,21 @@ schema 宣言から生成する expand/contract と custom backfill/guard を分
 fresh と復元 copy で、全 row の approved projection、元の payload bytes/checksum、全 FK/null/composite/delete/update、index/trigger/function、失敗時 transaction rollback、通常 migrator の no-op を比較する。旧 basis から次の preview/edit/apply/restore/publication、通知 baseline、同じ input の全数値と順序、旧ブラウザ state/replay、旧 link と public route、認証境界、consumer の新規書込みも gate に含む。
 
 切替前の復旧は DB と consumer を対応する保存済み baseline に戻す。namespace を変えたり hash を逆変換したりしない。復旧手順と本番承認は[正規開発手順](development.md)に従う。契約の unit test 成功だけで migration、consumer、実データの切替 gate を完了扱いにしない。
+
+
+## 生成した停止切替 tail
+
+| migration | 変更 |
+| --- | --- |
+| `0083` | 全 public table を NOWAIT で確保し、consumer が明示実装した title-state 作成・radar job binding・lease contract cleanup の 3 hook を除去。seal / immutable / desired tuple の構造 guard は保持する。 |
+| `0084` / `0085` | nullable `canonical_<column>` を追加し、全 typed identity の衝突・使用済み expand 列・OCR attempt を検査して backfill する。 |
+| `0086`〜`0088` | 元の PK に依存する FK を外し、旧列を `legacy_` へ、新しい列を元の名前へ rename する。 |
+| `0089` | `UPDATE OF` trigger の column dependency を昇格した pointer 列へ付け替える。 |
+| `0090` / `0091` | native PK / nullability / legacy uniqueness と空の anchor・新 replay table を宣言し、凍結 source を変更せず anchor を作る。不要な中間 legacy FK 列だけを除く。 |
+| `0092` / `0093` | 最終 FK を接続し、publication と radar source cleanup の lookup を anchor 経由にする。 |
+
+通常の Drizzle migrator は pending tail 全体を一つの transaction で適用する。writer 停止、基準保存、対応 consumer の切替が揃うまで、この tail の途中を稼働 schema として使わない。`worker_execution_slots` はこの tail では保持する。P6 consumer の no-slot gate と counter seed の確認後に行う削除は、別の migration として扱う。
+
+生成 DDL の局所補正は次の二点に限る。`0087` の旧 replay PK は適用済み `0013` が `idempotency_keys_pkey` と命名しており、旧 snapshot の推論名と異なるため、実際の制約名へ補正した。`0090` は Drizzle Kit 0.31.10 が inline PK の旧名を取得できず drop を placeholder / 未出力にするため、適用済み CREATE TABLE と fresh prefix の catalog で確認した `<table>_pkey` を drop して、宣言済みの新 PK に置き換える。独立した function / trigger / data transition は custom migration に分離し、metadata は手編集しない。
+
+`tests/canonical-identity-migration.test.mjs` は fresh 全履歴、全 source table・全変換列を含む復元 fixture、JavaScript と SQL の共通 UUID vector、FK action / composite scope / nullability、凍結 bytes、旧 replay、public sequence、失敗時 rollback、NOWAIT、通常 migrator の no-op を確認する。従来の text ID 向け migration test は明示的に `0082` までを検証し、新しい integration fixture は canonical schema に書く。consumer 全経路、実 copy、ブラウザ継続性、数値比較は別 gate であり、この DB fixture の成功に含めない。

@@ -1,3 +1,4 @@
+import { migrateLegacy, legacyIdentityMigrationCount } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -87,7 +88,7 @@ test('role migration preserves restored accounts, sessions, references and histo
     await withDatabase(async (copy, restored) => {
       docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
       assert.deepEqual(await snapshotDatabase(copy), before, 'The restored fixture must match the entire original database');
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      await migrateLegacy(copy);
       const after = await snapshotDatabase(copy);
       assert.deepEqual(after.rows, {
         ...expectedFencingCounterRows(expectedPublicIdentifierRows(expectedJobSchedulerRows(before.rows))),
@@ -95,7 +96,7 @@ test('role migration preserves restored accounts, sessions, references and histo
         oauth_state_consumptions: [],
         momo_login_accounts: expectedLoginAccountRoles(before.rows.momo_login_accounts)
       }, 'Only role, scheduler, public identifier and fencing counter transitions may change; account values and every session/reference must survive');
-      assert.equal(after.history.length, journal().entries.length);
+      assert.equal(after.history.length, legacyIdentityMigrationCount);
       assert.deepEqual(after.history.slice(0, before.history.length), before.history);
       assert.equal(after.rows.momo_login_accounts.filter(account => account.role === 'operator').length, 0);
 
@@ -103,7 +104,7 @@ test('role migration preserves restored accounts, sessions, references and histo
         WHERE id = 'role-user-enabled-unlinked' RETURNING role`;
       assert.equal(assigned.role, 'operator');
       const beforeRerun = await snapshotDatabase(copy);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      await migrateLegacy(copy);
       assert.deepEqual(await snapshotDatabase(copy), beforeRerun,
         'A second migrate call must preserve a subsequent operator assignment without backfilling or appending history');
       await assert.rejects(copy`SELECT is_admin FROM momo_login_accounts`, { code: '42703' });
@@ -120,7 +121,7 @@ test('role migration preserves restored accounts, sessions, references and histo
 
 test('fresh migrations expose only the three non-null roles, default to user and remove the legacy column and index', async () => {
   await withDatabase(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await migrateLegacy(db);
     const columns = await accountColumns(db);
     assert.equal(columns.some(column => column.column_name === 'is_admin'), false);
     const role = columns.find(column => column.column_name === 'role');
@@ -184,7 +185,7 @@ test('the real migrator waits for a legacy transaction and maps its newly commit
     let migrationFinished = false;
     try {
       const writerPid = await writerReady.promise;
-      migrationTask = migrate(drizzle(migrationClient), { migrationsFolder: './drizzle' });
+      migrationTask = migrateLegacy(migrationClient);
       migrationTask.then(() => { migrationFinished = true; }, () => { migrationFinished = true; });
       await waitForMigrationLock(db, writerPid, () => migrationFinished);
       releaseWriter.resolve();

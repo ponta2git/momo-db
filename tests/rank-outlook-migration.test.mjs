@@ -1,3 +1,4 @@
+import { migrateLegacy } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -42,7 +43,7 @@ async function publish(db, id, validationContract = contract) {
 }
 
 test('outlook seal requires complete bounded resources, then protects headers and child rows', async () => isolated(async db => {
-  await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+  await migrateLegacy(db);
   await db`INSERT INTO game_titles(id,name,layout_family) VALUES ('outlook-title','Outlook','momotetsu_2')`;
   await stage(db,'empty');
   await assert.rejects(publish(db,'empty'), /incomplete/);
@@ -71,7 +72,7 @@ test('outlook seal requires complete bounded resources, then protects headers an
 }));
 
 test('outlook generation retains the radar fence and previous-artifact compatibility boundary', async () => isolated(async db => {
-  await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+  await migrateLegacy(db);
   await db`INSERT INTO game_titles(id,name,layout_family) VALUES ('outlook-title','Outlook','momotetsu_2')`;
   await db`UPDATE series_analysis_title_states SET algorithm_version='series-analysis-v7',artifact_schema_version=6,validation_contract_id=${contract}`;
   await db`INSERT INTO series_radar_title_states(game_title_id,generation) VALUES ('outlook-title',1)`;
@@ -107,7 +108,7 @@ test('restored v5 publications and migration hashes survive the new tables and g
   const backup=docker(['pg_dump','-U',username,'--format=custom','--no-owner','--no-acl',name]);
   await isolated(async (copy,restored) => {
     docker(['pg_restore','-U',username,'--exit-on-error','--no-owner','--no-acl','-d',restored],backup);
-    await migrate(drizzle(copy),{migrationsFolder:'./drizzle'});
+    await migrateLegacy(copy);
     assert.deepEqual(await copy`SELECT to_jsonb(a)-'outlook_summary_chunk_count'-'outlook_reference_chunk_count' AS value FROM series_analysis_artifacts a ORDER BY id`,beforeHeaders);
     assert.deepEqual(await copy`SELECT to_jsonb(s) AS value FROM series_analysis_title_states s ORDER BY game_title_id`,beforeStates);
     assert.deepEqual((await copy`SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id`).slice(0,beforeHashes.length),Array.from(beforeHashes));
@@ -120,7 +121,7 @@ test('restored v5 publications and migration hashes survive the new tables and g
 
 
 test('expanded radar contract admits both seals but keeps pointers on the exact requested contract', async () => isolated(async db => {
-  await migrate(drizzle(db),{migrationsFolder:'./drizzle'});
+  await migrateLegacy(db);
   await db`INSERT INTO game_titles(id,name,layout_family) VALUES ('outlook-title','Outlook','momotetsu_2')`;
   await stage(db,'old-v1'); await summary(db,'old-v1'); await publish(db,'old-v1');
   const before=await db`SELECT to_jsonb(a) AS value FROM series_analysis_artifacts a WHERE id='old-v1'`;

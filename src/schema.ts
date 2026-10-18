@@ -7,7 +7,8 @@ export {
   momoLoginAccounts,
   appSessions,
   oauthStateConsumptions,
-  idempotencyKeys
+  idempotencyKeys,
+  idempotencyKeysLegacy
 } from "./schema/identity.js";
 export type { LoginAccountRole } from "./schema/identity.js";
 
@@ -74,6 +75,7 @@ export type { MatchDraftStatus } from "./schema/matches.js";
 
 export {
   seriesRadarBases,
+  seriesRadarBasisIdentities,
   seriesRadarCandidates,
   seriesRadarPreviews,
   seriesRadarPreviewScopes,
@@ -105,6 +107,7 @@ export {
 
 export {
   seriesAnalysisArtifacts,
+  seriesAnalysisArtifactIdentities,
   seriesAnalysisScopeAggregateArtifacts,
   seriesAnalysisOutlookSummaryArtifacts,
   seriesAnalysisOutlookReferenceArtifacts,

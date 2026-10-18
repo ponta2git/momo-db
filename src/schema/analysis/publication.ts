@@ -1,4 +1,5 @@
 import {
+  uuid,
   bigint,
   boolean,
   check,
@@ -11,7 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { gameTitles } from "../catalog.js";
-import { seriesAnalysisArtifacts } from "./artifacts.js";
+import { seriesAnalysisArtifactIdentities } from "./artifacts.js";
 import {
   checkSeriesAnalysisValidationContract,
   checkSeriesAnalysisValidationSchema
@@ -61,7 +62,7 @@ export const seriesAnalysisReleaseState = pgTable(
 export const seriesAnalysisTitleStates = pgTable(
   "series_analysis_title_states",
   {
-    gameTitleId: text("game_title_id")
+    gameTitleId: uuid("game_title_id")
       .primaryKey()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
     inputRevision: bigint("input_revision", { mode: "bigint" })
@@ -80,12 +81,12 @@ export const seriesAnalysisTitleStates = pgTable(
       .default(0),
     lastFailureCode: text("last_failure_code"),
     lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
-    currentArtifactId: text("current_artifact_id"),
-    previousArtifactId: text("previous_artifact_id"),
+    currentArtifactId: uuid("current_artifact_id"),
+    previousArtifactId: uuid("previous_artifact_id"),
     notificationBaselineState: text("notification_baseline_state")
       .notNull()
       .default("unknown"),
-    notificationBaselineArtifactId: text("notification_baseline_artifact_id"),
+    notificationBaselineArtifactId: uuid("notification_baseline_artifact_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -130,24 +131,24 @@ export const seriesAnalysisTitleStates = pgTable(
     foreignKey({
       columns: [table.notificationBaselineArtifactId, table.gameTitleId],
       foreignColumns: [
-        seriesAnalysisArtifacts.id,
-        seriesAnalysisArtifacts.gameTitleId
+        seriesAnalysisArtifactIdentities.id,
+        seriesAnalysisArtifactIdentities.gameTitleId
       ],
       name: "series_analysis_title_states_notification_baseline_artifact_fk"
     }).onDelete("restrict"),
     foreignKey({
       columns: [table.currentArtifactId, table.gameTitleId],
       foreignColumns: [
-        seriesAnalysisArtifacts.id,
-        seriesAnalysisArtifacts.gameTitleId
+        seriesAnalysisArtifactIdentities.id,
+        seriesAnalysisArtifactIdentities.gameTitleId
       ],
       name: "series_analysis_title_states_current_artifact_fk"
     }).onDelete("restrict"),
     foreignKey({
       columns: [table.previousArtifactId, table.gameTitleId],
       foreignColumns: [
-        seriesAnalysisArtifacts.id,
-        seriesAnalysisArtifacts.gameTitleId
+        seriesAnalysisArtifactIdentities.id,
+        seriesAnalysisArtifactIdentities.gameTitleId
       ],
       name: "series_analysis_title_states_previous_artifact_fk"
     }).onDelete("restrict"),

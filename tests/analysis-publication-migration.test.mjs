@@ -1,3 +1,4 @@
+import { migrateLegacy } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -68,7 +69,7 @@ async function stored(db) {
 
 test('fresh migrations preserve the baseline while allowing all supported publication contracts', async () => {
   await withDatabase(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await migrateLegacy(db);
     assert.deepEqual(await tuple(db), newTuple);
     await db`INSERT INTO game_titles(id, name, layout_family) VALUES ('analysis-title', 'Analysis title', 'momotetsu_2')`;
     const [state] = await db`SELECT algorithm_version, artifact_schema_version, validation_contract_id FROM series_analysis_title_states`;
@@ -124,7 +125,7 @@ for (const [lastIndex, baseline] of [[45, oldTuple], [51, newTuple]]) {
       await withDatabase(async (copy, restored) => {
         docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
         assert.deepEqual(await stored(copy), before);
-        await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+        await migrateLegacy(copy);
         assert.deepEqual(await tuple(copy), baseline);
         const after = await stored(copy);
         assert.ok(after.headers.every(row => row.radar_basis_id === null && row.radar_generation === 0 && row.radar_applied_at === null && row.scope_keys.length === 0));
@@ -156,7 +157,7 @@ for (const registry of ['reader', 'worker']) {
         await db`INSERT INTO series_analysis_worker_capabilities(worker_id, algorithm_versions, artifact_schema_versions, validation_contract_ids, draining, heartbeat_at)
           VALUES ('old-worker', '["series-analysis-v4"]', '[2]', ${JSON.stringify([oldContract])}::jsonb, true, '2000-01-01')`;
       }
-      await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+      await migrateLegacy(db);
       assert.deepEqual(await tuple(db), oldTuple);
     });
   });
@@ -229,7 +230,7 @@ test('notification baseline seeds only attested current publications and preserv
 
 test('notification baseline shape and same-title reference survive UI pointer changes and protect retained input', async () => {
   await withDatabase(async db => {
-    await migrate(drizzle(db), { migrationsFolder: './drizzle' });
+    await migrateLegacy(db);
     await db`INSERT INTO game_titles(id, name, layout_family) VALUES ('analysis-title', 'Analysis title', 'momotetsu_2'), ('other-title', 'Other title', 'momotetsu_2')`;
     const [initial] = await db`SELECT notification_baseline_state, notification_baseline_artifact_id FROM series_analysis_title_states WHERE game_title_id = 'analysis-title'`;
     assert.deepEqual({ ...initial }, { notification_baseline_state: 'unknown', notification_baseline_artifact_id: null });

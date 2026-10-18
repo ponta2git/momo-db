@@ -1,3 +1,4 @@
+import { migrateLegacy, legacyIdentityMigrationCount } from './migration-prefix.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -45,9 +46,9 @@ test('0057 preserves the complete restored database and adds valid bytewise navi
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', restored], backup);
     copy = createTestClient(restored);
     assert.deepEqual(await snapshotDatabase(copy, tables), before);
-    await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+    await migrateLegacy(copy);
     const after = await snapshotDatabase(copy, tables.filter(table => !retiredQueueTables.includes(table)));
-    assert.equal(after.history.length, JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')).entries.length);
+    assert.equal(after.history.length, legacyIdentityMigrationCount);
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
     assert.deepEqual(after.rows, {
       ...expectedFencingCounterRows(expectedPublicIdentifierRows(expectedJobSchedulerRows(before.rows))),

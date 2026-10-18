@@ -1,6 +1,6 @@
 {
   "formatVersion": 1,
-  "status": "frozen-consumer-target-contract-migration-pending",
+  "status": "frozen-consumer-target-contract",
   "sourceSnapshot": "drizzle/meta/0080_snapshot.json",
   "algorithm": "sha256-uuidv8-v1",
   "namespace": "deabc659-a5ca-4dc0-9711-eae0614fa478",

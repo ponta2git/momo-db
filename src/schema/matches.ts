@@ -1,4 +1,6 @@
 import {
+  uuid,
+  foreignKey,
   bigint,
   check,
   index,
@@ -35,29 +37,33 @@ export type MatchDraftStatus = (typeof MATCH_DRAFT_STATUSES)[number];
 export const matchDrafts = pgTable(
   "match_drafts",
   {
-    id: text("id").primaryKey(),
-    createdByMemberId: text("created_by_member_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyTotalAssetsDraftId: text("legacy_total_assets_draft_id"),
+    legacyRevenueDraftId: text("legacy_revenue_draft_id"),
+    legacyIncidentLogDraftId: text("legacy_incident_log_draft_id"),
+    id: uuid("id").primaryKey(),
+    createdByMemberId: uuid("created_by_member_id")
       .references(() => members.id, { onDelete: "restrict" }),
-    createdByAccountId: text("created_by_account_id")
+    createdByAccountId: uuid("created_by_account_id")
       .notNull()
       .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
     status: text("status").notNull(),
-    heldEventId: text("held_event_id").references(() => heldEvents.id, {
+    heldEventId: uuid("held_event_id").references(() => heldEvents.id, {
       onDelete: "restrict"
     }),
     matchNoInEvent: integer("match_no_in_event"),
-    gameTitleId: text("game_title_id").references(() => gameTitles.id, {
+    gameTitleId: uuid("game_title_id").references(() => gameTitles.id, {
       onDelete: "restrict"
     }),
     // why: gameTitles.layoutFamily の冗長コピー。下書き時点の OCR profile family を固定する。
     layoutFamily: text("layout_family"),
-    seasonMasterId: text("season_master_id").references(() => seasonMasters.id, {
+    seasonMasterId: uuid("season_master_id").references(() => seasonMasters.id, {
       onDelete: "restrict"
     }),
-    ownerMemberId: text("owner_member_id").references(() => members.id, {
+    ownerMemberId: uuid("owner_member_id").references(() => members.id, {
       onDelete: "restrict"
     }),
-    mapMasterId: text("map_master_id").references(() => mapMasters.id, {
+    mapMasterId: uuid("map_master_id").references(() => mapMasters.id, {
       onDelete: "restrict"
     }),
     playedAt: timestamp("played_at", { withTimezone: true }),
@@ -66,16 +72,16 @@ export const matchDrafts = pgTable(
     revenueImageId: text("revenue_image_id"),
     incidentLogImageId: text("incident_log_image_id"),
     // why: 確定前に参照する OCR draft id。ocr_drafts cleanup を許容するため FK は張らない。
-    totalAssetsDraftId: text("total_assets_draft_id"),
-    revenueDraftId: text("revenue_draft_id"),
-    incidentLogDraftId: text("incident_log_draft_id"),
+    totalAssetsDraftId: uuid("total_assets_draft_id"),
+    revenueDraftId: uuid("revenue_draft_id"),
+    incidentLogDraftId: uuid("incident_log_draft_id"),
     sourceImagesRetainedUntil: timestamp("source_images_retained_until", {
       withTimezone: true
     }),
     sourceImagesDeletedAt: timestamp("source_images_deleted_at", {
       withTimezone: true
     }),
-    confirmedMatchId: text("confirmed_match_id").references(() => matches.id, {
+    confirmedMatchId: uuid("confirmed_match_id").references(() => matches.id, {
       onDelete: "set null"
     }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -86,6 +92,9 @@ export const matchDrafts = pgTable(
       .defaultNow()
   },
   (table) => [
+    check("match_drafts_total_assets_draft_legacy_null_check", sql`(${table.totalAssetsDraftId} IS NULL) = (${table.legacyTotalAssetsDraftId} IS NULL)`),
+    check("match_drafts_revenue_draft_legacy_null_check", sql`(${table.revenueDraftId} IS NULL) = (${table.legacyRevenueDraftId} IS NULL)`),
+    check("match_drafts_incident_log_draft_legacy_null_check", sql`(${table.incidentLogDraftId} IS NULL) = (${table.legacyIncidentLogDraftId} IS NULL)`),
     check("match_drafts_layout_family_check", sql`${table.layoutFamily} IS NULL OR ${table.layoutFamily} IN ('momotetsu_2','world','reiwa')`),
     check(
       "match_drafts_status_check",
@@ -125,29 +134,31 @@ export const matchDrafts = pgTable(
 export const matches = pgTable(
   "matches",
   {
-    id: text("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyHeldEventId: text("legacy_held_event_id").notNull(),
+    id: uuid("id").primaryKey(),
     // Public routes serialize this independent number as a decimal string.
     publicId: bigint("public_id", { mode: "bigint" })
       .notNull()
       .generatedAlwaysAsIdentity()
       .unique(),
-    heldEventId: text("held_event_id")
+    heldEventId: uuid("held_event_id")
       .notNull()
       .references(() => heldEvents.id, { onDelete: "restrict" }),
     matchNoInEvent: integer("match_no_in_event").notNull(),
-    gameTitleId: text("game_title_id")
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "restrict" }),
     // why: gameTitles.layoutFamily の冗長コピー。OCR profile family を結果に固定するため。
     //   作品名変更時にも過去結果の解析プロファイルが追跡できる。
     layoutFamily: text("layout_family").notNull(),
-    seasonMasterId: text("season_master_id")
+    seasonMasterId: uuid("season_master_id")
       .notNull()
       .references(() => seasonMasters.id, { onDelete: "restrict" }),
-    ownerMemberId: text("owner_member_id")
+    ownerMemberId: uuid("owner_member_id")
       .notNull()
       .references(() => members.id, { onDelete: "restrict" }),
-    mapMasterId: text("map_master_id")
+    mapMasterId: uuid("map_master_id")
       .notNull()
       .references(() => mapMasters.id, { onDelete: "restrict" }),
     playedAt: timestamp("played_at", { withTimezone: true }).notNull(),
@@ -156,9 +167,9 @@ export const matches = pgTable(
     totalAssetsDraftId: text("total_assets_draft_id"),
     revenueDraftId: text("revenue_draft_id"),
     incidentLogDraftId: text("incident_log_draft_id"),
-    createdByMemberId: text("created_by_member_id")
+    createdByMemberId: uuid("created_by_member_id")
       .references(() => members.id, { onDelete: "restrict" }),
-    createdByAccountId: text("created_by_account_id")
+    createdByAccountId: uuid("created_by_account_id")
       .notNull()
       .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -176,13 +187,14 @@ export const matches = pgTable(
     noteVersion: bigint("note_version", { mode: "bigint" })
       .notNull()
       .default(sql`0`),
-    noteUpdatedByAccountId: text("note_updated_by_account_id").references(
+    noteUpdatedByAccountId: uuid("note_updated_by_account_id").references(
       () => momoLoginAccounts.id,
       { onDelete: "restrict" }
     ),
     noteUpdatedAt: timestamp("note_updated_at", { withTimezone: true })
   },
   (table) => [
+    foreignKey({ name: "matches_event_legacy_identity_fk", columns: [table.heldEventId, table.legacyHeldEventId], foreignColumns: [heldEvents.id, heldEvents.legacyId] }).onDelete("restrict"),
     check("matches_layout_family_check", sql`${table.layoutFamily} IN ('momotetsu_2','world','reiwa')`),
     uniqueIndex("matches_event_match_no_unique").on(
       table.heldEventId,
@@ -217,9 +229,9 @@ export const matches = pgTable(
     // Bound global adjacent-match reads even when many matches share a timestamp.
     index("matches_navigation_idx").on(
       table.playedAt,
-      sql`${table.heldEventId} COLLATE "C"`,
+      sql`${table.legacyHeldEventId} COLLATE "C"`,
       table.matchNoInEvent,
-      sql`${table.id} COLLATE "C"`
+      sql`${table.legacyId} COLLATE "C"`
     )
   ]
 );
@@ -230,10 +242,10 @@ export const matches = pgTable(
 export const matchPlayers = pgTable(
   "match_players",
   {
-    matchId: text("match_id")
+    matchId: uuid("match_id")
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
-    memberId: text("member_id")
+    memberId: uuid("member_id")
       .notNull()
       .references(() => members.id, { onDelete: "restrict" }),
     playOrder: integer("play_order").notNull(),
@@ -267,13 +279,13 @@ export const matchPlayers = pgTable(
 export const matchIncidents = pgTable(
   "match_incidents",
   {
-    matchId: text("match_id")
+    matchId: uuid("match_id")
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
-    memberId: text("member_id")
+    memberId: uuid("member_id")
       .notNull()
       .references(() => members.id, { onDelete: "restrict" }),
-    incidentMasterId: text("incident_master_id")
+    incidentMasterId: uuid("incident_master_id")
       .notNull()
       .references(() => incidentMasters.id, { onDelete: "restrict" }),
     count: integer("count").notNull().default(0),

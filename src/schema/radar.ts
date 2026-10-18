@@ -1,7 +1,8 @@
 import {
+  uuid,
+  foreignKey,
   bigint,
   check,
-  foreignKey,
   index,
   jsonb,
   pgTable,
@@ -21,7 +22,7 @@ export const seriesRadarBases = pgTable(
     id: text("id").primaryKey(),
     gameTitleId: text("game_title_id")
       .notNull()
-      .references(() => gameTitles.id, { onDelete: "cascade" }),
+      .references(() => gameTitles.legacyId, { onDelete: "cascade" }),
     checksum: text("checksum").notNull(),
     payload: jsonb("payload").notNull(),
     sourceSnapshot: jsonb("source_snapshot"),
@@ -48,11 +49,13 @@ export const seriesRadarBases = pgTable(
 export const seriesRadarCandidates = pgTable(
   "series_radar_candidates",
   {
-    id: text("id").primaryKey(),
-    gameTitleId: text("game_title_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyGameTitleId: text("legacy_game_title_id").notNull(),
+    id: uuid("id").primaryKey(),
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
-    basisId: text("basis_id"),
+    basisId: uuid("basis_id"),
     originKind: text("origin_kind").notNull().default("generated"),
     manualInput: jsonb("manual_input"),
     sourceBasisId: text("source_basis_id"),
@@ -71,6 +74,8 @@ export const seriesRadarCandidates = pgTable(
       .defaultNow()
   },
   (table) => [
+    unique("series_radar_candidates_legacy_title_unique").on(table.legacyId, table.legacyGameTitleId),
+    foreignKey({ name: "series_radar_candidates_title_identity_fk", columns: [table.gameTitleId, table.legacyGameTitleId], foreignColumns: [gameTitles.id, gameTitles.legacyId] }).onDelete("cascade"),
     unique("series_radar_candidates_id_title_unique").on(
       table.id,
       table.gameTitleId
@@ -81,12 +86,12 @@ export const seriesRadarCandidates = pgTable(
     foreignKey({
       name: "series_radar_candidate_basis_fk",
       columns: [table.basisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.id, seriesRadarBasisIdentities.gameTitleId]
     }),
     foreignKey({
       name: "series_radar_candidate_source_basis_fk",
       columns: [table.sourceBasisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.legacyId, seriesRadarBasisIdentities.gameTitleId]
     }),
     check(
       "series_radar_candidate_origin_check",
@@ -110,12 +115,13 @@ export const seriesRadarCandidates = pgTable(
 export const seriesRadarPreviews = pgTable(
   "series_radar_previews",
   {
-    id: text("id").primaryKey(),
-    gameTitleId: text("game_title_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
-    candidateId: text("candidate_id").notNull(),
-    beforeBasisId: text("before_basis_id"),
+    candidateId: uuid("candidate_id").notNull(),
+    beforeBasisId: uuid("before_basis_id"),
     inputRevision: bigint("input_revision", { mode: "bigint" })
       .notNull(),
     status: text("status").notNull().default("pending"),
@@ -139,7 +145,7 @@ export const seriesRadarPreviews = pgTable(
     foreignKey({
       name: "series_radar_preview_basis_fk",
       columns: [table.beforeBasisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.id, seriesRadarBasisIdentities.gameTitleId]
     }),
     check(
       "series_radar_previews_status_check",
@@ -159,7 +165,7 @@ export const seriesRadarPreviews = pgTable(
 export const seriesRadarPreviewScopes = pgTable(
   "series_radar_preview_scopes",
   {
-    previewId: text("preview_id")
+    previewId: uuid("preview_id")
       .notNull()
       .references(() => seriesRadarPreviews.id, { onDelete: "cascade" }),
     scopeKey: text("scope_key").notNull(),
@@ -175,21 +181,26 @@ export const seriesRadarPreviewScopes = pgTable(
 export const seriesRadarOperations = pgTable(
   "series_radar_operations",
   {
-    id: text("id").primaryKey(),
-    gameTitleId: text("game_title_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyGameTitleId: text("legacy_game_title_id").notNull(),
+    legacyOriginOperationId: text("legacy_origin_operation_id"),
+    legacyRequestedBy: text("legacy_requested_by").notNull(),
+    legacyJobId: text("legacy_job_id"),
+    id: uuid("id").primaryKey(),
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     status: text("status").notNull().default("pending"),
-    candidateId: text("candidate_id"),
-    previewId: text("preview_id"),
-    basisId: text("basis_id"),
-    originOperationId: text("origin_operation_id"),
-    requestedBy: text("requested_by").notNull(),
+    candidateId: uuid("candidate_id"),
+    previewId: uuid("preview_id"),
+    basisId: uuid("basis_id"),
+    originOperationId: uuid("origin_operation_id"),
+    requestedBy: uuid("requested_by").notNull(),
     requestedByDisplayName: text("requested_by_display_name"),
     idempotencyKeyHash: text("idempotency_key_hash").notNull(),
     requestFingerprint: text("request_fingerprint").notNull(),
-    jobId: text("job_id"),
+    jobId: uuid("job_id"),
     safeFailureCode: text("safe_failure_code"),
     requestedAt: timestamp("requested_at", { withTimezone: true })
       .notNull()
@@ -200,6 +211,10 @@ export const seriesRadarOperations = pgTable(
       .defaultNow()
   },
   (table) => [
+    check("series_radar_operations_origin_operation_legacy_null_check", sql`(${table.originOperationId} IS NULL) = (${table.legacyOriginOperationId} IS NULL)`),
+    check("series_radar_operations_job_legacy_null_check", sql`(${table.jobId} IS NULL) = (${table.legacyJobId} IS NULL)`),
+    unique("series_radar_operations_legacy_title_unique").on(table.legacyId, table.legacyGameTitleId),
+    foreignKey({ name: "series_radar_operations_title_identity_fk", columns: [table.gameTitleId, table.legacyGameTitleId], foreignColumns: [gameTitles.id, gameTitles.legacyId] }).onDelete("cascade"),
     uniqueIndex("series_radar_operations_idempotency_unique").on(
       table.gameTitleId,
       table.requestedBy,
@@ -222,7 +237,7 @@ export const seriesRadarOperations = pgTable(
     foreignKey({
       name: "series_radar_operation_basis_fk",
       columns: [table.basisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.id, seriesRadarBasisIdentities.gameTitleId]
     }),
     check(
       "series_radar_operations_kind_check",
@@ -233,7 +248,7 @@ export const seriesRadarOperations = pgTable(
       sql`${table.status} IN ('pending','running','succeeded','failed','withdrawn')`
     ),
     index("series_radar_operations_pending_idx")
-      .on(table.requestedAt, table.id)
+      .on(table.requestedAt, table.legacyId)
       .where(sql`${table.status} = 'pending' AND ${table.jobId} IS NULL`),
     index("series_radar_operations_title_created_idx").on(
       table.gameTitleId,
@@ -245,18 +260,18 @@ export const seriesRadarOperations = pgTable(
 export const seriesRadarTitleStates = pgTable(
   "series_radar_title_states",
   {
-    gameTitleId: text("game_title_id")
+    gameTitleId: uuid("game_title_id")
       .primaryKey()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
-    desiredBasisId: text("desired_basis_id"),
-    currentBasisId: text("current_basis_id"),
-    previousBasisId: text("previous_basis_id"),
+    desiredBasisId: uuid("desired_basis_id"),
+    currentBasisId: uuid("current_basis_id"),
+    previousBasisId: uuid("previous_basis_id"),
     currentAppliedAt: timestamp("current_applied_at", { withTimezone: true }),
     previousAppliedAt: timestamp("previous_applied_at", { withTimezone: true }),
     generation: bigint("generation", { mode: "bigint" })
       .notNull()
       .default(sql`0`),
-    activeOperationId: text("active_operation_id"),
+    activeOperationId: uuid("active_operation_id"),
     monitor: jsonb("monitor"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -266,17 +281,17 @@ export const seriesRadarTitleStates = pgTable(
     foreignKey({
       name: "series_radar_state_desired_basis_fk",
       columns: [table.desiredBasisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.id, seriesRadarBasisIdentities.gameTitleId]
     }),
     foreignKey({
       name: "series_radar_state_current_basis_fk",
       columns: [table.currentBasisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.id, seriesRadarBasisIdentities.gameTitleId]
     }),
     foreignKey({
       name: "series_radar_state_previous_basis_fk",
       columns: [table.previousBasisId, table.gameTitleId],
-      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+      foreignColumns: [seriesRadarBasisIdentities.id, seriesRadarBasisIdentities.gameTitleId]
     }),
     foreignKey({
       name: "series_radar_state_operation_fk",
@@ -305,11 +320,12 @@ export const seriesRadarTitleStates = pgTable(
 export const seriesRadarAcknowledgements = pgTable(
   "series_radar_acknowledgements",
   {
-    gameTitleId: text("game_title_id")
+    legacyRequestedBy: text("legacy_requested_by").notNull(),
+    gameTitleId: uuid("game_title_id")
       .notNull()
       .references(() => gameTitles.id, { onDelete: "cascade" }),
     evidenceKey: text("evidence_key").notNull(),
-    requestedBy: text("requested_by").notNull(),
+    requestedBy: uuid("requested_by").notNull(),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -328,7 +344,7 @@ export const seriesRadarRevisions = pgTable(
     operationId: text("operation_id").primaryKey(),
     gameTitleId: text("game_title_id")
       .notNull()
-      .references(() => gameTitles.id, { onDelete: "cascade" }),
+      .references(() => gameTitles.legacyId, { onDelete: "cascade" }),
     candidateId: text("candidate_id").notNull(),
     beforeBasisId: text("before_basis_id"),
     afterBasisId: text("after_basis_id").notNull(),
@@ -343,12 +359,12 @@ export const seriesRadarRevisions = pgTable(
     foreignKey({
       name: "series_radar_revision_operation_fk",
       columns: [table.operationId, table.gameTitleId],
-      foreignColumns: [seriesRadarOperations.id, seriesRadarOperations.gameTitleId]
+      foreignColumns: [seriesRadarOperations.legacyId, seriesRadarOperations.legacyGameTitleId]
     }),
     foreignKey({
       name: "series_radar_revision_candidate_fk",
       columns: [table.candidateId, table.gameTitleId],
-      foreignColumns: [seriesRadarCandidates.id, seriesRadarCandidates.gameTitleId]
+      foreignColumns: [seriesRadarCandidates.legacyId, seriesRadarCandidates.legacyGameTitleId]
     }),
     foreignKey({
       name: "series_radar_revision_before_fk",
@@ -370,5 +386,30 @@ export const seriesRadarRevisions = pgTable(
       table.publishedAt,
       table.operationId
     )
+  ]
+);
+
+// Stable UUID identity for an immutable legacy header; the source row is never rewritten.
+export const seriesRadarBasisIdentities = pgTable(
+  "series_radar_basis_identities",
+  {
+    id: uuid("id").primaryKey(),
+    legacyId: text("legacy_id").notNull().unique(),
+    gameTitleId: uuid("game_title_id").notNull(),
+    legacyGameTitleId: text("legacy_game_title_id").notNull()
+  },
+  (table) => [
+    uniqueIndex("series_radar_basis_identities_id_title_unique").on(table.id, table.gameTitleId),
+    uniqueIndex("series_radar_basis_identities_legacy_title_unique").on(table.legacyId, table.gameTitleId),
+    foreignKey({
+      name: "series_radar_basis_identities_source_fk",
+      columns: [table.legacyId, table.legacyGameTitleId],
+      foreignColumns: [seriesRadarBases.id, seriesRadarBases.gameTitleId]
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "series_radar_basis_identities_title_fk",
+      columns: [table.gameTitleId, table.legacyGameTitleId],
+      foreignColumns: [gameTitles.id, gameTitles.legacyId]
+    }).onDelete("cascade")
   ]
 );

@@ -18,8 +18,10 @@ import { momoLoginAccounts } from "./identity.js";
 export const ocrDrafts = pgTable(
   "ocr_drafts",
   {
-    id: text("id").primaryKey(),
-    jobId: text("job_id").notNull(),
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyJobId: text("legacy_job_id").notNull(),
+    id: uuid("id").primaryKey(),
+    jobId: uuid("job_id").notNull(),
     requestedScreenType: text("requested_screen_type").notNull(),
     detectedScreenType: text("detected_screen_type"),
     profileId: text("profile_id"),
@@ -72,8 +74,9 @@ export type SourceImageStatus = (typeof SOURCE_IMAGE_STATUSES)[number];
 export const sourceImages = pgTable(
   "source_images",
   {
-    id: text("id").primaryKey(),
-    ownerAccountId: text("owner_account_id")
+    legacyId: text("legacy_id").notNull().unique(),
+    id: uuid("id").primaryKey(),
+    ownerAccountId: uuid("owner_account_id")
       .notNull()
       .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
     objectKey: text("object_key").notNull(),
@@ -148,12 +151,14 @@ export const sourceImages = pgTable(
 export const ocrJobs = pgTable(
   "ocr_jobs",
   {
-    id: text("id").primaryKey(),
-    draftId: text("draft_id").notNull(),
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyDraftId: text("legacy_draft_id").notNull(),
+    id: uuid("id").primaryKey(),
+    draftId: uuid("draft_id").notNull(),
     imageId: text("image_id").notNull(),
     // Retained for historical local-input jobs; new jobs use sourceImageId and inputSnapshot.
     imagePath: text("image_path"),
-    sourceImageId: text("source_image_id").references(() => sourceImages.id, {
+    sourceImageId: uuid("source_image_id").references(() => sourceImages.id, {
       onDelete: "restrict"
     }),
     requestedScreenType: text("requested_screen_type").notNull(),
@@ -195,7 +200,7 @@ export const ocrJobs = pgTable(
     index("ocr_jobs_image_id_idx").on(table.imageId),
     index("ocr_jobs_source_image_id_idx").on(table.sourceImageId),
     index("ocr_jobs_claimable_idx")
-      .on(table.availableAt, table.createdAt, table.id)
+      .on(table.availableAt, table.createdAt, table.legacyId)
       .where(sql`${table.status} = 'queued'`),
     check(
       "ocr_jobs_input_snapshot_check",
@@ -229,10 +234,12 @@ export type OcrSubmissionStatus = (typeof OCR_SUBMISSION_STATUSES)[number];
 export const ocrSubmissions = pgTable(
   "ocr_submissions",
   {
-    id: text("id").primaryKey(),
-    ownerAccountId: text("owner_account_id").notNull()
+    legacyId: text("legacy_id").notNull().unique(),
+    legacyMatchDraftId: text("legacy_match_draft_id").notNull(),
+    id: uuid("id").primaryKey(),
+    ownerAccountId: uuid("owner_account_id").notNull()
       .references(() => momoLoginAccounts.id, { onDelete: "restrict" }),
-    matchDraftId: text("match_draft_id").notNull(),
+    matchDraftId: uuid("match_draft_id").notNull(),
     ocrHintsJson: jsonb("ocr_hints_json").notNull().default(sql`'{}'::jsonb`),
     status: text("status").notNull().default("open"),
     admissionDeadline: timestamp("admission_deadline", { withTimezone: true }).notNull(),
@@ -240,11 +247,11 @@ export const ocrSubmissions = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true })
   },
   (table) => [
-    index("ocr_submissions_status_id_idx").on(table.status, table.id),
-    index("ocr_submissions_status_deadline_idx").on(table.status, table.admissionDeadline, table.id),
+    index("ocr_submissions_status_id_idx").on(table.status, table.legacyId),
+    index("ocr_submissions_status_deadline_idx").on(table.status, table.admissionDeadline, table.legacyId),
     index("ocr_submissions_owner_status_idx").on(table.ownerAccountId, table.status),
     index("ocr_submissions_draft_status_idx").on(table.matchDraftId, table.status),
-    check("ocr_submissions_id_check", sql`length(${table.id}) = 36 AND ${table.id} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`),
+    check("ocr_submissions_id_check", sql`length(${table.legacyId}) = 36 AND ${table.legacyId} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`),
     check("ocr_submissions_hints_object_check", sql`jsonb_typeof(${table.ocrHintsJson}) = 'object'`),
     check("ocr_submissions_status_check", sql`${table.status} IN ('open','settled','aborted')`),
     check("ocr_submissions_terminal_shape_check", sql`(${table.status} = 'open' AND ${table.finishedAt} IS NULL) OR (${table.status} IN ('settled','aborted') AND ${table.finishedAt} IS NOT NULL)`),
@@ -260,14 +267,14 @@ export type OcrSubmissionMemberStatus = (typeof OCR_SUBMISSION_MEMBER_STATUSES)[
 export const ocrSubmissionMembers = pgTable(
   "ocr_submission_members",
   {
-    submissionId: text("submission_id").notNull()
+    submissionId: uuid("submission_id").notNull()
       .references(() => ocrSubmissions.id, { onDelete: "cascade" }),
     screenType: text("screen_type").notNull(),
     uploadIdempotencyKeyHash: text("upload_idempotency_key_hash").notNull(),
     imageSha256Hex: text("image_sha256_hex").notNull(),
     imageByteLength: integer("image_byte_length").notNull(),
     status: text("status").notNull().default("pending"),
-    jobId: text("job_id").references(() => ocrJobs.id, { onDelete: "restrict" }),
+    jobId: uuid("job_id").references(() => ocrJobs.id, { onDelete: "restrict" }),
     failureCode: text("failure_code")
   },
   (table) => [
