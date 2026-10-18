@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { compareDatabaseLocale } from './database.mjs';
 import { digest, requireCondition } from './files.mjs';
-import { schemaStructure } from './run.mjs';
+import { schemaStructure } from './schema.mjs';
 
 export const PUBLIC_IDENTIFIER_PROFILE = 'public-identifiers-v1';
 export const PUBLIC_IDENTIFIER_SOURCE_LENGTH = 73;

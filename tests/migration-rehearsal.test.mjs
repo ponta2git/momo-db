@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { createServer, createConnection } from 'node:net';
@@ -8,6 +8,9 @@ import { Readable, Writable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import pg from 'pg';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createWorkspace, createKey, loadKey, privateDirectory, privateFile,
   encryptStream, decryptStream, readJson, writeJson, withRunLock, digest, fileDigest } from '../scripts/migration/files.mjs';
 import { command } from '../scripts/migration/process.mjs';
@@ -15,7 +18,7 @@ import { databaseLocation, connect, historyState, fingerprint, compareFingerprin
 import { inventoryClient } from '../scripts/migration/sql-client.mjs';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
 import { assertOwned, cleanupLocal, localUrl, startLocal, databaseState, createDatabase, withLocalConnection, localInitdbArguments } from '../scripts/migration/local.mjs';
-import { main, runAction, compareMigration } from '../scripts/migration/run.mjs';
+import { main, runAction, compareMigration, parseArguments } from '../scripts/migration/run.mjs';
 import { expectedMigrationHistory } from '../scripts/check-migration-history.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
@@ -384,6 +387,71 @@ test('a valid encrypted report from another snapshot cannot authorize a restore'
         codeIs('REPORT_DIGEST_MISMATCH'));
       assert.deepEqual(await calls(), []);
     });
+  }));
+});
+
+test('explicit public identifier profile builds a fresh reference and verifies the complete runner transition', async t => {
+  assert.equal(parseArguments(['prepare', '--key-file', '/private/key', '--profile', 'public-identifiers-v1']).options.profile,
+    'public-identifiers-v1');
+  for (const args of [['verify', '--profile', 'public-identifiers-v1'], ['prepare', '--profile', 'unknown']]) {
+    assert.throws(() => parseArguments([...args, '--key-file', '/private/key']), codeIs('INVALID_REHEARSAL_PROFILE'));
+  }
+  await withDirectory(async directory => withRunnerCommands(async commands => {
+    const key = randomBytes(32);
+    const manifest = { formatVersion: 1, runId: randomUUID(), candidate: commands.candidate,
+      postgres: { id: await command('docker', ['inspect', '--format', '{{.Image}}', process.env.MOMO_DB_TEST_CONTAINER]) },
+      profile: 'public-identifiers-v1', state: 'restored', local: null, checks: {}, incomplete: [], durationsMs: {} };
+    const save = () => writeJson(join(directory, 'manifest.json.enc'), manifest, key);
+    const capture = async database => {
+      const sql = connect(localUrl(manifest, database));
+      try {
+        return await sql.begin('isolation level repeatable read read only', async transaction => ({
+          connection: await inspectConnection(transaction, process.cwd()),
+          schema: await inspectSchema(transaction), rows: await fingerprint(transaction),
+        }));
+      } finally { await sql.end(); }
+    };
+    try {
+      await startLocal(manifest, save, { server: { ...builtinLocale, collation: 'C', ctype: 'C' } });
+      await withLocalConnection(manifest, async () => {
+        const folder = join(directory, 'fixture-prefix');
+        await cp(join(process.cwd(), 'drizzle'), folder, { recursive: true });
+        const journal = JSON.parse(await readFile(join(folder, 'meta/_journal.json'), 'utf8'));
+        await writeFile(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: journal.entries.slice(0, 73) }));
+        const baseline = postgres(localUrl(manifest, 'momo_rehearsal_baseline'), { max: 1, prepare: false, onnotice() {} });
+        try {
+          await migrate(drizzle(baseline), { migrationsFolder: folder });
+          await baseline`INSERT INTO held_events(id, held_date_iso, start_at) VALUES ('legacy-identifier', '2026-01-01', '2026-01-01T00:00:00Z')`;
+        } finally { await baseline.end(); }
+        const before = await capture('momo_rehearsal_baseline');
+        manifest.baselineDigest = digest(before);
+        await writeJson(join(directory, 'baseline.json.enc'), before, key);
+        await save();
+        await runAction('rehearse', manifest, directory, key, save);
+        assert.equal(manifest.state, 'verified');
+        for (const name of ['freshReference', 'migratorFirstRun', 'migratorNoop', 'migration', 'migrationSchema', 'savedRows']) {
+          assert.equal(manifest.checks[name], true, name);
+        }
+        assert.equal((await commands.migratorCalls()).length, 3, 'reference plus two candidate migrator invocations');
+        assert.deepEqual(await capture('momo_rehearsal_baseline'), before, 'baseline changed during reference or migration');
+        const profile = await readJson(join(directory, 'profile.json.enc'), key);
+        assert.equal(profile.history.entries.length, 78);
+        await runAction('verify', manifest, directory, key, save);
+        assert.equal((await commands.migratorCalls()).length, 3, 'verify must not replay the migrator');
+
+        await t.test('missing reference evidence cannot reuse a previously created reference database', async () => {
+          delete manifest.profileDigest;
+          await assert.rejects(runAction('rehearse', manifest, directory, key, save), codeIs('EXISTING_REFERENCE_REQUIRES_FRESH_RUN'));
+          assert.equal((await commands.migratorCalls()).length, 3);
+          manifest.profileDigest = digest(profile);
+        });
+        await t.test('a changed reference report is rejected before candidate mutation', async () => {
+          await writeJson(join(directory, 'profile.json.enc'), { ...profile, schemaBefore: {} }, key);
+          await assert.rejects(runAction('rehearse', manifest, directory, key, save), codeIs('REPORT_DIGEST_MISMATCH'));
+          assert.equal((await commands.migratorCalls()).length, 3);
+        });
+      });
+    } finally { await cleanupLocal(manifest, save); }
   }));
 });
 

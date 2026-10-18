@@ -5,7 +5,7 @@ import { decryptStream, fileDigest, requireCondition } from './files.mjs';
 import { connect, databaseLocale } from './database.mjs';
 
 const ownerLabel = 'io.momo.migration.run';
-const databaseNames = new Set(['momo_rehearsal_baseline', 'momo_rehearsal_migration', 'momo_rehearsal_smoke', 'momo_rehearsal_recovery']);
+const databaseNames = new Set(['momo_rehearsal_baseline', 'momo_rehearsal_migration', 'momo_rehearsal_smoke', 'momo_rehearsal_recovery', 'momo_rehearsal_reference']);
 const fullId = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const noMutationCheck = async () => {};
 const localConnections = new WeakMap();

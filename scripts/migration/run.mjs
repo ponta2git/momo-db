@@ -8,6 +8,11 @@ import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
 import { command, start } from './process.mjs';
 import { importSnapshot } from './snapshot.mjs';
+import { createMigrationReferences } from './reference.mjs';
+import { schemaStructure } from './schema.mjs';
+export { schemaStructure } from './schema.mjs';
+import { PUBLIC_IDENTIFIER_PROFILE, PUBLIC_IDENTIFIER_SOURCE_LENGTH, loadPublicIdentifierHistory,
+  createPublicIdentifierProfile, inspectPublicIdentifierTransition, comparePublicIdentifierTransition } from './public-identifiers.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
   writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
@@ -21,7 +26,7 @@ const recoveryName = 'momo_rehearsal_recovery';
 export function parseArguments(args) {
   const [action, ...rest] = args;
   const options = {};
-  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest', 'snapshot-manifest']);
+  const allowed = new Set(['run-dir', 'key-file', 'source-config', 'postgres-image', 'manifest', 'snapshot-manifest', 'profile']);
   for (let index = 0; index < rest.length; index += 2) {
     const name = rest[index].replace(/^--/, '');
     requireCondition(rest[index].startsWith('--') && allowed.has(name) && !(name in options) &&
@@ -31,6 +36,7 @@ export function parseArguments(args) {
   requireCondition(['prepare', 'inspect', 'snapshot', 'restore', 'rehearse', 'verify', 'recover-rehearsal', 'status', 'cleanup'].includes(action), 'UNKNOWN_COMMAND');
   requireCondition(isAbsolute(options['key-file'] ?? ''), 'ABSOLUTE_KEY_PATH_REQUIRED');
   requireCondition(!options['snapshot-manifest'] || (action === 'prepare' && !options['source-config']), 'SNAPSHOT_IMPORT_ONLY_FOR_PREPARE');
+  requireCondition(!options.profile || (action === 'prepare' && ['preserve-v1', PUBLIC_IDENTIFIER_PROFILE].includes(options.profile)), 'INVALID_REHEARSAL_PROFILE');
   return { action, options };
 }
 
@@ -50,22 +56,7 @@ async function sourceUrl(manifest, key) {
   return value.sourceUrl;
 }
 
-// pg_restore maps owners and omits ACLs locally. Keep the complete original
-// inventory encrypted, and compare the structural projection separately.
-// This never certifies application-role/SECURITY DEFINER behavior.
-export function schemaStructure(schema) {
-  const visit = value => {
-    if (Array.isArray(value)) return value.map(visit);
-    if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.entries(value)
-      .filter(([name]) => !['owner', 'privileges', 'position', 'comparisonDefinition', 'comparisonChecks'].includes(name))
-      .map(([name, child]) => [name, visit(name === 'definition' && Object.hasOwn(value, 'comparisonDefinition') ? value.comparisonDefinition :
-        name === 'checks' && Object.hasOwn(value, 'comparisonChecks') ? value.comparisonChecks : child)]));
-  };
-  return visit(schema);
-}
-
-async function audit(sql, { identifiers = false, sequences = true } = {}) {
+async function audit(sql, { identifiers = false, sequences = true, profile } = {}) {
   const connection = await inspectConnection(sql, repository);
   requireCondition(Number(connection.server.version) >= 180000 && Number(connection.server.version) < 190000, 'POSTGRES_18_REQUIRED');
   const schema = await inspectSchema(sql);
@@ -74,6 +65,7 @@ async function audit(sql, { identifiers = false, sequences = true } = {}) {
   requireCondition(objects === '0', 'LARGE_OBJECT_REQUIRES_COMPARATOR');
   const result = { connection, schema, rows: await fingerprint(sql, { sequences }) };
   if (identifiers) result.identifiers = await inspectIdentifierValues(sql, schema);
+  if (profile) result.transition = await inspectPublicIdentifierTransition(sql, profile);
   return result;
 }
 
@@ -129,6 +121,42 @@ export async function runAction(action, manifest, directory, key, save, { signal
     await writeJson(report(name), value, key);
     return digest(value);
   };
+  const migrate = async target => {
+    await assertOwned(manifest);
+    await beforeMutation();
+    databaseLocation(target, { local: true });
+    await command('pnpm', ['db:migrate:ci'], { cwd: repository, env: { ...process.env, DIRECT_URL: target }, failureCode: 'LOCAL_MIGRATION_FAILED', signal });
+  };
+  const migrationProfile = async before => {
+    const selected = manifest.profile ?? 'preserve-v1';
+    requireCondition(['preserve-v1', PUBLIC_IDENTIFIER_PROFILE].includes(selected), 'INVALID_REHEARSAL_PROFILE');
+    if (selected === 'preserve-v1') {
+      requireCondition(before.connection.pending.length === 0, 'PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR');
+      return null;
+    }
+    const history = await loadPublicIdentifierHistory(repository);
+    requireCondition(digest(before.connection.ledger) === digest(history.entries.slice(0, PUBLIC_IDENTIFIER_SOURCE_LENGTH)),
+      'PUBLIC_IDENTIFIER_SOURCE_LEDGER_DIFFERS');
+    if (manifest.profileDigest) {
+      const profile = await readReport('profile', manifest.profileDigest);
+      requireCondition(profile.history?.migrationDigest === history.migrationDigest, 'REHEARSAL_PROFILE_CANDIDATE_CHANGED');
+      requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
+      return profile;
+    }
+    requireCondition(action === 'rehearse', 'VERIFIED_REFERENCE_PROFILE_REQUIRED');
+    const references = await createMigrationReferences({ manifest, directory, repository,
+      prefixLength: PUBLIC_IDENTIFIER_SOURCE_LENGTH, beforeMutation,
+      capture: database => withDatabase(localUrl(manifest, database), sql => audit(sql)), migrateTarget: migrate });
+    const profile = createPublicIdentifierProfile({ history, ...references });
+    requireCondition(digest(schemaStructure(before.schema)) === digest(profile.schemaBefore), 'PUBLIC_IDENTIFIER_SOURCE_SCHEMA_DIFFERS');
+    manifest.profileDigest = await writeReport('profile', profile);
+    manifest.checks.freshReference = true;
+    await save();
+    return profile;
+  };
+  const compareTransition = (before, after, profile) => profile
+    ? comparePublicIdentifierTransition({ before, after, transition: after.transition, profile })
+    : compareMigration(before, after);
   if (action === 'status') return;
   if (action === 'cleanup') { await cleanupLocal(manifest, save); manifest.state = 'cleaned'; return; }
   await beforeMutation();
@@ -209,32 +237,26 @@ export async function runAction(action, manifest, directory, key, save, { signal
     if (action === 'rehearse') {
       requireCondition(['restored', 'migration-started', 'migrated', 'verified'].includes(manifest.state), 'RESTORED_BASELINE_REQUIRED');
       const before = await readReport('baseline', manifest.baselineDigest);
-      requireCondition(before.connection.pending.length === 0, 'PENDING_MIGRATIONS_REQUIRE_SCHEMA_COMPARATOR');
+      const profile = await migrationProfile(before);
       const baseline = await withDatabase(localUrl(manifest, baselineName), sql => audit(sql));
-      compareMigration(before, baseline);
+      compareRestore(before, baseline, { sequences: true });
       manifest.state = 'migration-started';
       await save();
       const existing = await databaseState(manifest, migrationName);
       if (existing === 'missing') {
         await createDatabase(manifest, migrationName, baselineName, { beforeMutation });
         const target = localUrl(manifest, migrationName);
-        databaseLocation(target, { local: true });
-        const migrate = async () => {
-          await assertOwned(manifest);
-          await beforeMutation();
-          await command('pnpm', ['db:migrate:ci'], { cwd: repository, env: { ...process.env, DIRECT_URL: target }, failureCode: 'LOCAL_MIGRATION_FAILED', signal });
-        };
-        await migrate();
-        const first = await withDatabase(target, sql => audit(sql));
-        compareMigration(before, first);
+        await migrate(target);
+        const first = await withDatabase(target, sql => audit(sql, { profile }));
+        compareTransition(before, first, profile);
         manifest.firstMigrationDigest = await writeReport('migrated-first', first);
         manifest.checks.migratorFirstRun = true;
         manifest.state = 'migrated';
         await save();
         // The second normal migrator invocation must preserve the full local
         // schema, ledger, saved values and sequence state from the first pass.
-        await migrate();
-        const second = await withDatabase(target, sql => audit(sql));
+        await migrate(target);
+        const second = await withDatabase(target, sql => audit(sql, { profile }));
         compareMigration(first, second);
         manifest.migratedDigest = await writeReport('migrated', second);
         manifest.checks.migratorNoop = true;
@@ -249,8 +271,9 @@ export async function runAction(action, manifest, directory, key, save, { signal
     if (action === 'rehearse' || action === 'verify') {
       requireCondition(['migration-started', 'migrated', 'verified', 'recovery-verified'].includes(manifest.state), 'MIGRATION_REQUIRED');
       const before = await readReport('baseline', manifest.baselineDigest);
-      const after = await withDatabase(localUrl(manifest, migrationName), sql => audit(sql));
-      compareMigration(before, after);
+      const profile = await migrationProfile(before);
+      const after = await withDatabase(localUrl(manifest, migrationName), sql => audit(sql, { profile }));
+      compareTransition(before, after, profile);
       if (manifest.migratedDigest) compareMigration(await readReport('migrated', manifest.migratedDigest), after);
       manifest.migratedDigest = await writeReport('migrated', after);
       if (!manifest.checks.migratorNoop) {
@@ -302,7 +325,7 @@ export async function main(args) {
     requireCondition(digest(await candidate()) === digest(fixed), 'CANDIDATE_CHANGED');
     directory = await createWorkspace(options['run-dir'], repository);
     path = resolve(directory, 'manifest.json.enc');
-    manifest = { formatVersion: 1, runId: randomUUID(), candidate: fixed, postgres,
+    manifest = { formatVersion: 1, runId: randomUUID(), candidate: fixed, postgres, profile: options.profile ?? 'preserve-v1',
       createdAt: new Date().toISOString(), state: 'prepared',
       source, local: null, checks: {}, durationsMs: {},
       incomplete: ['column-mapping-and-consumer-contracts', 'application-role-behavior', 'consumer-smoke-and-connection-switch',
