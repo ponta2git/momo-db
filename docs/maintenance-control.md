@@ -95,3 +95,46 @@ pnpm maintenance:freeze verify --run /private/path/freeze-run --key /private/pat
 CLI 強制終了、途中更新、結果不明の後は同じ run の `stop` を再実行できない。残る lock / journal、実 machine / secret / process / DB を照合し、必要な `invalidate` と新世代の証拠を揃える。停止を解除するには、[復旧または通常再開の境界](#世代と段階)を先に記録する。`stop` の失敗処理が normal secret を戻すことはない。
 
 この証拠は停止完了の記録であり、最終 backup の代わりにはならない。停止後に取得した backup の復元・移行・比較・consumer smoke・別 DB への復旧を行い、同じ停止世代へ結び付けてから `VERIFIED` へ進める。
+
+## 停止後の最終リハーサル
+
+`maintenance:rehearsal` は、新規 run と停止後の dump だけを受け入れる。既存の online snapshot を最終 backup として再利用できない。freeze run と同じ鍵を使い、全詳細を暗号化した private directory に保存する。
+
+```bash
+pnpm maintenance:rehearsal prepare --run /private/path/final-run \
+  --freeze-run /private/path/freeze-run --key /private/path/freeze.key
+pnpm maintenance:rehearsal snapshot --run /private/path/final-run --key /private/path/freeze.key
+pnpm maintenance:rehearsal restore --run /private/path/final-run --key /private/path/freeze.key
+pnpm maintenance:rehearsal rehearse --run /private/path/final-run --key /private/path/freeze.key
+pnpm maintenance:rehearsal recover-rehearsal --run /private/path/final-run --key /private/path/freeze.key
+```
+
+`prepare` は停止対象の接続から source 設定を導出し、現在の clean commit を DB 候補と照合する。`--postgres-image` と、対応する比較器を実装した候補の `--profile` を指定できる。既定の保全比較器は pending migration を拒否する。未対応の変更を通すために比較を弱めない。
+
+各段階とローカル mutation の前に、live GitHub 保護設定、外部 writer 証拠の期限、machine / boot / secret、consumer 接続、全 writer の収束を再照合する。source の exported read-only snapshot が開いている間だけ、その transaction を他の writer と誤認しないよう完全検査を前後へ置く。dump と同一 snapshot の全保存値、取得前後の sequence を比較し、最終 seal 時にも現在の source 全体が一致することを確認する。
+
+DB の復元・移行・全保存値 / schema / ledger 比較と正規 migrator の二回目 no-op、旧 backup からの recovery は CLI が検証する。アプリの実操作、実画像、制限 role、旧ブラウザ、次の更新や計算等は、同じ final run の smoke / recovery copy 上で別途実行する。operator は実際の private report と実行記録を確認し、次の暗号化 acceptance JSON を作る。hash だけで実行済みとは認定しない。
+
+- `formatVersion: 1`、制御記録と同じ `operator`、この manifest の `runId` と `candidates`。
+- この run の `snapshotDigest`（archive）、`migratedDigest`、`recoveredDigest`。
+- UTC の `reviewedAt` / `validUntil` と、未完了項目がない `incomplete: []`。
+- [必須受入区分](../scripts/maintenance/final-rehearsal.mjs)ごとに一件の `checks`。各項目は `kind`、`outcome: "passed"`、実レポートの `reportDigest`、実行記録の `executionDigest`、`durationMs`、`completedAt` を持つ。最終 snapshot より前の結果、skip、未完了、重複、欠落は拒否する。変更のない通常 quality suite の証拠は参照できるが、最終コピー自体での必須確認は省略できない。
+
+```bash
+pnpm maintenance:rehearsal seal --run /private/path/final-run --key /private/path/freeze.key \
+  --acceptance /private/path/final-acceptance.json.enc
+pnpm maintenance:rehearsal status --run /private/path/final-run --key /private/path/freeze.key
+```
+
+`seal` は authenticated report・archive・全比較・停止継続・時間余裕を確認し、private proof を保存してからその digest を `VERIFIED` へ CAS 登録する。途中終了や CAS の結果不明では proof を保持し、自動再実行しない。control と proof を照合して実際の段階を確定する。通常の `migration:rehearsal` へこの run を渡して停止確認を省略することはできない。
+
+receipt の入力は、この proof から生成する。
+
+```bash
+pnpm maintenance:rehearsal receipt --run /private/path/final-run --key /private/path/freeze.key \
+  --input /private/path/producer-input.json --output /private/path/receipt-input.json
+```
+
+producer input は既存の receipt 契約の `operation`、`producer`、必要な操作の `scope` だけを指定する。source / baseline / target / snapshot / final proof / 前段階の digest は検証済み記録から導出し、execution tuple は含めない。CI の `bind-receipt` が実 run / attempt を付け、master producer と artifact の成功・同一性を確認する。生成だけでは mutation の許可を与えない。
+
+`cleanup` は同じ run が所有するローカル資源だけを削除し、暗号化 backup と証拠は保持する。本番 restore、接続先変更、再開は行わない。

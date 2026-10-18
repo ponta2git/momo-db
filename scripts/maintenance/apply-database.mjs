@@ -58,7 +58,7 @@ export async function executeDatabase({ receipt, expected, guard, capture, prefl
     targetData: after.dataDigest, control };
 }
 
-async function capture(url) {
+export async function captureDatabase(url) {
   const sql = connect(url);
   try {
     return await sql.begin('isolation level repeatable read read only', async transaction => {
@@ -111,7 +111,7 @@ export async function main(args) {
     return { head: result.controlHead, stateVersion: result.stateVersion };
   };
   const proof = await executeDatabase({ receipt, expected: expectedMigrationHistory(`${repository}/drizzle`),
-    guard, capture: () => capture(url), preflight, migrate, verify });
+    guard, capture: () => captureDatabase(url), preflight, migrate, verify });
   const output = resolve(process.env.RUNNER_TEMP ?? repository, 'database-maintenance-proof.json');
   await writeFile(output, JSON.stringify(proof, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   console.log(JSON.stringify({ mode: proof.mode, proofDigest: digest(proof) }));

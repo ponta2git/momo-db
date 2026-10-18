@@ -61,6 +61,8 @@ pnpm build
 | `pnpm db:preflight:ci` | CI の migration 用 direct 接続を安全に検証 |
 | `pnpm migration:rehearsal <command>` | 暗号化した本番コピーの棚卸し・隔離復元・移行比較（[手順と証拠の範囲](docs/migration-rehearsal.md)） |
 | `pnpm maintenance:control <command>` | 永続停止状態・固定候補・実行 receipt の確認と operator による更新（[導入と運用](docs/maintenance-control.md)） |
+| `pnpm maintenance:freeze <command>` | 全 writer の drain・永続停止・停止継続の検査 |
+| `pnpm maintenance:rehearsal <command>` | 停止後の backup・最終リハーサル・受入証拠を同じ停止世代へ結び付ける |
 
 ## ローカル開発（postgres コンテナ使用）
 
