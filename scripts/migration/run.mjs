@@ -113,20 +113,14 @@ function summary(manifest) {
     durationsMs: manifest.durationsMs };
 }
 
-export async function runAction(action, manifest, directory, key, save, { signal, freezeGuard, roleAudit, applicationCopy } = {}) {
+export async function runAction(action, manifest, directory, key, save, { signal, roleAudit, applicationCopy } = {}) {
+  requireCondition(!Object.hasOwn(manifest, 'finalFreeze'), 'FINAL_REHEARSAL_RETIRED');
   const report = name => resolve(directory, `${name}.json.enc`);
   const archive = resolve(directory, 'source.dump.enc');
   let sourceTransition;
-  let sourceSnapshotOpen = false;
   const beforeMutation = async () => {
     requireCondition(!signal?.aborted, 'REHEARSAL_INTERRUPTED');
     await assertCandidate(manifest);
-    if (manifest.finalFreeze) {
-      requireCondition(typeof freezeGuard === 'function', 'FINAL_REHEARSAL_REQUIRES_LIVE_FREEZE_GUARD');
-      // The source inspector requires zero other transactions. The one
-      // exported read-only snapshot is bracketed by full continuity checks.
-      if (!sourceSnapshotOpen) requireCondition(digest(await freezeGuard()) === digest(manifest.finalFreeze), 'FINAL_FREEZE_CHANGED');
-    }
   };
   const readReport = async (name, expectedDigest) => {
     const value = await readJson(report(name), key);
@@ -222,11 +216,10 @@ export async function runAction(action, manifest, directory, key, save, { signal
     try {
       const before = await inspectConnection(sql, repository);
       await sql.begin(isolation, async transaction => {
-        sourceSnapshotOpen = true;
         const [{ snapshot }] = await transaction`SELECT pg_export_snapshot() AS snapshot`;
         requireCondition(/^[0-9A-Fa-f-]+$/.test(snapshot), 'INVALID_EXPORTED_SNAPSHOT');
         // Audit before applying any migration, in the exact dump snapshot.
-        const baseline = await audit(transaction, { identifiers: true, sequences: Boolean(manifest.finalFreeze) });
+        const baseline = await audit(transaction, { identifiers: true, sequences: false });
         requireCondition(before.ledgerDigest === baseline.connection.ledgerDigest, 'SOURCE_LEDGER_CHANGED');
         // Keep the completed inventory even if the subsequent dump fails. It
         // remains provisional until the archive and both ledger checks pass.
@@ -244,14 +237,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
         try { await Promise.all([encryptStream(child.stdout, archive, key), completed]); }
         catch (error) { child.kill('SIGKILL'); await completed.catch(() => {}); throw error; }
         await beforeMutation();
-        if (manifest.finalFreeze) {
-          // Sequence state is not MVCC. A stopped source must match in full,
-          // including sequences, after the dump as well as at its snapshot.
-          const current = await withDatabase(url, connection => audit(connection));
-          compareRestore(baseline, current, { sequences: true });
-        }
-        manifest.snapshot = { mode: manifest.finalFreeze ? 'frozen-consistent-snapshot' : 'online-consistent-snapshot',
-          ...(manifest.finalFreeze ? { freezeDigest: digest(manifest.finalFreeze) } : {}), capturedAt: new Date().toISOString(),
+        manifest.snapshot = { mode: 'online-consistent-snapshot', capturedAt: new Date().toISOString(),
           archiveDigest: await fileDigest(archive), auditDigest: digest(baseline),
           bytes: (await stat(archive)).size, tableCount: baseline.rows.tables.length,
           ledgerCount: baseline.connection.ledger.length, pendingDigest: digest(baseline.connection.pending) };
@@ -260,8 +246,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
       requireCondition(after.ledgerDigest === before.ledgerDigest, 'SOURCE_LEDGER_CHANGED');
       manifest.state = 'snapshotted';
       manifest.checks.sourceSnapshot = true;
-    } finally { sourceSnapshotOpen = false; await sql.end().catch(() => {}); }
-    await beforeMutation();
+    } finally { await sql.end().catch(() => {}); }
     return;
   }
   if (action === 'restore') {

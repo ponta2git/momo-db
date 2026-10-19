@@ -88,7 +88,7 @@ pnpm migration:rehearsal application-role \
 
 `smoke` は検証済み migration copy から専用 DB を作り、`recovery` は検証済みの復旧 copy を使う。保存行と sequence を既存の検証証拠と照合してから、run 固有 role へ DB と object の owner を対応付ける。role 属性は監査値を再現し、`public` の owner は source と同じ `pg_database_owner` とする。実際の application login で実効権限・全保存値・sequence の不変性を読み戻し、暗号化した `application-role-<copy>.json.enc` に結果を残す。baseline / migration copy は対象にできない。
 
-最終停止後の run では、`pnpm maintenance:rehearsal application-role --run <final-run> --key <key> --role-audit <encrypted-audit> --copy smoke`（または `recovery`）を使う。各変更前後に同じ停止世代を確認する。通常 CLI から final run の guard を省く操作は拒否する。
+停止制御に結び付いた旧 `finalFreeze` manifest はこの CLI の対象外であり、`FINAL_REHEARSAL_RETIRED` で拒否する。汎用リハーサルには新しい run を使う。
 
 この証拠は application DB 内の実効権限の再現を表す。provider の管理権限や cluster membership は元監査に記録し、ローカルで再現したとは扱わない。`applicationRoleMapping` が true でも業務処理は未実行なので、`application-role-behavior` は残す。consumer の読み書き、function / trigger、画像・通知先を含む別 gate の実行結果が必要である。
 
