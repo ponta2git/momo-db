@@ -4,21 +4,13 @@ on:
   pull_request:
   push:
     branches: [master]
-  workflow_dispatch:
-    inputs:
-      receipt_json:
-        description: Sanitized final rehearsal receipt for this fixed cutover candidate
-        required: true
-        type: string
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   ci:
     name: Build & Check
-    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       drizzle_changed: ${{ steps.changes.outputs.changed }}
@@ -88,84 +80,10 @@ jobs:
           MOMO_DB_TEST_CONTAINER: ${{ job.services.postgres.id }}
         run: pnpm test:migrations
 
-      - name: Record fixed database candidate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        run: node scripts/maintenance/database-candidate.mjs
-
-      - name: Retain successful candidate proof
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: db-candidate-${{ github.run_id }}-${{ github.run_attempt }}
-          path: database-candidate.json
-          if-no-files-found: error
-          retention-days: 30
-
-  normal-mutation:
-    name: Check normal migration admission
-    needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.control.outputs.allowed }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - name: Check persistent maintenance state
-        id: control
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/maintenance/run.mjs normal-status >> "$GITHUB_OUTPUT"
-
-  maintenance-receipt:
-    name: Bind final rehearsal to this execution
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    outputs:
-      artifact_id: ${{ steps.receipt-upload.outputs.artifact-id }}
-      artifact_digest: ${{ steps.receipt-upload.outputs.artifact-digest }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - name: Read bounded dispatch input
-        run: |
-          node --input-type=module <<'JS'
-          import { readFile, writeFile } from 'node:fs/promises';
-          const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
-          const input = event.inputs?.receipt_json;
-          if (typeof input !== 'string' || Buffer.byteLength(input) > 65536) throw new Error('Bounded receipt JSON is required.');
-          await writeFile('receipt-input.json', input, { flag: 'wx', mode: 0o600 });
-          JS
-      - name: Bind actual run and inspect the fixed producer
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          node scripts/maintenance/run.mjs bind-receipt database receipt-input.json receipt.json > receipt-summary.json
-          node --input-type=module <<'JS'
-          import { readFile, appendFile } from 'node:fs/promises';
-          const summary = JSON.parse(await readFile('receipt-summary.json', 'utf8'));
-          await appendFile(process.env.GITHUB_STEP_SUMMARY,
-            `Database receipt: \`${summary.receiptDigest}\`\n\nExecution: ${summary.execution.runId} / attempt ${summary.execution.runAttempt}\n\nRegister this exact receipt permit before approving the existing production environment.\n`);
-          JS
-      - name: Save the approval receipt
-        id: receipt-upload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: db-maintenance-receipt-${{ github.run_id }}-${{ github.run_attempt }}
-          path: receipt.json
-          if-no-files-found: error
-          retention-days: 30
-
   approve-migration:
     name: Approve production migration
-    needs: [ci, normal-mutation, maintenance-receipt]
-    if: >-
-      always() && ((needs.normal-mutation.result == 'success' && needs.normal-mutation.outputs.allowed == 'true') ||
-      needs.maintenance-receipt.result == 'success')
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
     runs-on: ubuntu-latest
     environment: production-db
     steps:
@@ -177,12 +95,7 @@ jobs:
     needs:
       - ci
       - approve-migration
-      - normal-mutation
-      - maintenance-receipt
-    if: >-
-      always() && needs.approve-migration.result == 'success' &&
-      ((needs.normal-mutation.result == 'success' && needs.normal-mutation.outputs.allowed == 'true') ||
-      needs.maintenance-receipt.result == 'success')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
     runs-on: ubuntu-latest
     # Serialize migrations: never cancel in-progress to avoid partial schema state
     concurrency:
@@ -191,7 +104,6 @@ jobs:
     environment: CI Actions
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
 
@@ -204,26 +116,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Download the exact approval receipt
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          artifact-ids: ${{ needs.maintenance-receipt.outputs.artifact_id }}
-          path: maintenance-receipt
+      - name: Verify migration connection
+        run: pnpm db:preflight:ci
 
-      - name: Apply the approved normal migration
-        if: github.event_name == 'push'
-        run: node scripts/maintenance/apply-database.mjs
+      - name: Run migration
+        run: pnpm db:migrate:ci
 
-      - name: Apply or verify the exact maintenance target
-        if: github.event_name == 'workflow_dispatch'
-        run: node scripts/maintenance/apply-database.mjs --receipt maintenance-receipt/receipt.json
-
-      - name: Retain database verification evidence
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: db-maintenance-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/database-maintenance-proof.json
-          if-no-files-found: error
-          retention-days: 30
+      - name: Verify applied migration history
+        run: pnpm db:verify:ci
