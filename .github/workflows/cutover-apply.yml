@@ -1,0 +1,143 @@
+name: Protected cutover SQL
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact master SHA already passed CI
+        required: true
+      evidence_run_id:
+        description: Successful Cutover final evidence producer run
+        required: true
+      evidence_attempt:
+        description: Exact producer run attempt
+        required: true
+      evidence_sha256:
+        description: SHA256 of encrypted final-evidence.json.enc
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+# Shares the existing exclusion with ordinary migrations and read-only preflight.
+# The approval is inside this exclusion: a waiting cutover cannot overlap SQL.
+concurrency:
+  group: neon-migrate
+  cancel-in-progress: false
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE: ${{ inputs.candidate_sha }}
+      EVIDENCE_RUN: ${{ inputs.evidence_run_id }}
+      EVIDENCE_ATTEMPT: ${{ inputs.evidence_attempt }}
+      EVIDENCE_SHA256: ${{ inputs.evidence_sha256 }}
+    steps:
+      - name: Verify exact candidate and successful producer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/master
+          test "$CANDIDATE" = "$GITHUB_SHA"
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EVIDENCE_RUN" =~ ^[0-9]+$ ]]
+          [[ "$EVIDENCE_ATTEMPT" =~ ^[0-9]+$ ]]
+          [[ "$EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EVIDENCE_RUN" > producer.json
+          jq -e --arg sha "$CANDIDATE" --argjson attempt "$EVIDENCE_ATTEMPT" \
+            '.head_sha == $sha and .run_attempt == $attempt and .head_branch == "master" and
+             .event == "workflow_dispatch" and .conclusion == "success" and
+             .path == ".github/workflows/cutover-final-evidence.yml"' producer.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$CANDIDATE&event=push&status=success" > quality.json
+          jq -e --arg sha "$CANDIDATE" \
+            'any(.workflow_runs[]; .head_sha == $sha and .head_branch == "master" and .conclusion == "success")' quality.json
+
+  approve:
+    needs: provenance
+    runs-on: ubuntu-latest
+    environment: production-db
+    steps:
+      - name: Record approved fixed commit
+        env:
+          APPROVED_SHA: ${{ inputs.candidate_sha }}
+        run: echo "Approved fixed cutover candidate $APPROVED_SHA."
+
+  apply:
+    needs: approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: CI Actions
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      NEON_API_KEY: ${{ secrets.CUTOVER_NEON_API_KEY }}
+      FLY_API_TOKEN: ${{ secrets.CUTOVER_FLY_READ_TOKEN }}
+      MOMO_CUTOVER_APPROVED_SHA: ${{ inputs.candidate_sha }}
+      MOMO_REHEARSAL_PROJECT_ID: ${{ vars.MOMO_REHEARSAL_PROJECT_ID }}
+      MOMO_REHEARSAL_BRANCH_ID: ${{ vars.MOMO_REHEARSAL_BRANCH_ID }}
+      MOMO_REHEARSAL_ENDPOINT_ID: ${{ vars.MOMO_REHEARSAL_ENDPOINT_ID }}
+      MOMO_DB_EXPECTED_DIRECT_HOST: ${{ vars.MOMO_DB_EXPECTED_DIRECT_HOST }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Retrieve encrypted final evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: cutover-final-${{ inputs.candidate_sha }}-${{ inputs.evidence_attempt }}
+          run-id: ${{ inputs.evidence_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/cutover-evidence
+      - name: Validate encrypted handoff and prepare private key
+        env:
+          EXPECTED_SHA256: ${{ inputs.evidence_sha256 }}
+          KEY_BASE64: ${{ secrets.CUTOVER_EVIDENCE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$NEON_API_KEY"
+          test -n "$FLY_API_TOKEN"
+          export EVIDENCE_DIR="$RUNNER_TEMP/cutover-evidence"
+          chmod 700 "$EVIDENCE_DIR"
+          python3 - <<'PY'
+          import base64, hashlib, os, pathlib
+          root = pathlib.Path(os.environ["EVIDENCE_DIR"])
+          evidence = root / "final-evidence.json.enc"
+          assert evidence.is_file() and not evidence.is_symlink()
+          assert hashlib.sha256(evidence.read_bytes()).hexdigest() == os.environ["EXPECTED_SHA256"]
+          evidence.chmod(0o600)
+          key = base64.b64decode(os.environ["KEY_BASE64"], validate=True)
+          assert len(key) == 32
+          (root / "key").write_bytes(key)
+          (root / "key").chmod(0o600)
+          PY
+      - name: Connection preflight
+        run: pnpm db:preflight:ci
+      - name: Compare stopped Machines and final source immediately before canonical SQL
+        run: |
+          node scripts/migration/cutover-apply.mjs \
+            --evidence "$RUNNER_TEMP/cutover-evidence/final-evidence.json.enc" \
+            --key-file "$RUNNER_TEMP/cutover-evidence/key" \
+            --output "$RUNNER_TEMP/cutover-evidence/attempt.json.enc"
+      - name: Verify target history
+        run: pnpm db:verify:ci
+      - name: Preserve encrypted outcome for read-only classification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutover-sql-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cutover-evidence/attempt.json.enc
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove decryption key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/cutover-evidence/key"

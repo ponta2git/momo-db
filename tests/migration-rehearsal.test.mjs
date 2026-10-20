@@ -336,7 +336,7 @@ async function withRunnerCommands(run) {
     await writeFile(join(directory, 'pnpm'), `#!${process.execPath}\n
       const fs = require('node:fs');
       const args = process.argv.slice(2);
-      if (args.length !== 1 || args[0] !== 'db:migrate:ci') process.exit(2);
+      if (JSON.stringify(args) !== JSON.stringify(['exec', 'drizzle-kit', 'migrate'])) process.exit(2);
       fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + '\\n');
       const result = require('node:child_process').spawnSync(${JSON.stringify(executable)}, args, { stdio: 'inherit' });
       process.exit(result.status ?? 1);
@@ -544,7 +544,7 @@ test('owned database retries inspect committed work, verify schemas and prove a 
         });
         await t.test('a fresh rehearsal invokes the normal migrator twice and compares both results', async () => {
           await apply('rehearse');
-          assert.deepEqual(await commands.migratorCalls(), [['db:migrate:ci'], ['db:migrate:ci']]);
+          assert.deepEqual(await commands.migratorCalls(), [['exec', 'drizzle-kit', 'migrate'], ['exec', 'drizzle-kit', 'migrate']]);
           assert.equal(manifest.state, 'verified');
           assert.equal(manifest.checks.migratorFirstRun, true);
           assert.equal(manifest.checks.migratorNoop, true);
