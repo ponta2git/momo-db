@@ -1,0 +1,29 @@
+name: Cutover read-only preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: CI Actions
+    concurrency:
+      group: neon-migrate
+      cancel-in-progress: false
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      MOMO_DB_EXPECTED_DIRECT_HOST: ${{ vars.MOMO_DB_EXPECTED_DIRECT_HOST }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify direct connection and exact baseline without applying SQL
+        run: pnpm db:preflight:ci && pnpm db:cutover-baseline:ci
