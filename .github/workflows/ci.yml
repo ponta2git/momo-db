@@ -117,6 +117,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Verify migration connection
+        env:
+          MOMO_DB_EXPECTED_DIRECT_HOST: ${{ vars.MOMO_DB_EXPECTED_DIRECT_HOST }}
         run: pnpm db:preflight:ci
 
       - name: Run migration

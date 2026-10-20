@@ -22,10 +22,10 @@ master push の前後で `drizzle/` の差分がなければ、本番承認・�
 
 | Environment | 設定するもの |
 | --- | --- |
-| `CI Actions` | `DIRECT_URL` Secret。Neon production の direct / unpooled 接続を登録する |
+| `CI Actions` | `DIRECT_URL` Secret に Neon production の direct / unpooled 接続、`MOMO_DB_EXPECTED_DIRECT_HOST` Variable に同じ branch の承認済み direct hostname を登録する |
 | `production-db` | required reviewer と master だけを許可する deployment branch policy |
 
-本番用 `DIRECT_URL` が未設定だと `Migrate Neon` は失敗する。登録・ローテーションは[接続先更新手順](./docs/ops/neon-production-connection-rotation.md)に従う。Neon 側の project / branch / role を更新しても GitHub Secret は自動更新されない。
+本番用 `DIRECT_URL` または承認済み direct hostname が未設定・不一致なら `Migrate Neon` は preflight で失敗する。登録・ローテーションは[接続先更新手順](./docs/ops/neon-production-connection-rotation.md)に従う。Neon 側の project / branch / role を更新しても GitHub の設定は自動更新されない。
 
 workflow の `environment: production-db` だけでは承認待ちは保証されないため、Settings または GitHub API で protection rule の存在を確認する。reviewer の個人情報や環境設定の実値は repository に記録しない。
 
@@ -57,6 +57,7 @@ pnpm build
 | `pnpm db:migrate` | 未適用のマイグレーションを DB に適用 |
 | `pnpm db:check` | マイグレーションの整合性チェック |
 | `pnpm db:preflight:ci` | CI の migration 用 direct 接続を安全に検証 |
+| `pnpm db:cutover-baseline:ci` | 今回の停止切替前に、同じ接続先の適用済み履歴が厳密に `0000`–`0072` であることを読み取り確認（migration は適用しない） |
 | `pnpm migration:rehearsal <command>` | 暗号化した本番コピーの棚卸し・隔離復元・移行比較（[手順と証拠の範囲](docs/migration-rehearsal.md)） |
 
 ## ローカル開発（postgres コンテナ使用）

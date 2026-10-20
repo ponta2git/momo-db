@@ -29,6 +29,7 @@
     "db:check": "dotenv -e .env.local -- drizzle-kit check",
     "db:check:ci": "drizzle-kit check",
     "db:preflight:ci": "node scripts/check-migration-connection.mjs",
+    "db:cutover-baseline:ci": "node scripts/check-cutover-baseline.mjs",
     "db:migrate:ci": "drizzle-kit migrate",
     "db:verify:ci": "node scripts/check-migration-history.mjs"
   },

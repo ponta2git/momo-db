@@ -4,6 +4,8 @@
 
 2026-10-19 追記: この文書は計画当時の判断と受入条件を保存する。P0 の停止・配備制御と専用 repair は撤去し、P1 の汎用リハーサルと P2–P7 の DB 改修・検証資材は維持する。以下の P0 に依存する dispatch・停止・再開手順は現行の実行手順ではない。現在の CI と適用条件は [README](../../README.md#ci--cd) と [正規開発手順](../development.md#6-適用と-release-順序)、汎用 CLI は [リハーサル手順](../migration-rehearsal.md) を参照する。
 
+2026-10-20 追記: 現在の切替工程は [2026-10-20 実行計画](./2026-10-20-production-cutover-execution.md) を参照する。
+
 内部 ID、公開 URL、冪等性、マスター、OCR、worker、DB function / trigger の改修を、準備 release、データ保全検証、本番適用、consumer 切替、復旧まで一つの計画として扱う。**本番の実データをローカルへ復元するリハーサルを必須とし、本番では全 writer を停止するメンテナンス時間を確保する。**
 
 この文書は実装計画である。新しい migration、consumer 修正、移行 CLI、workflow 制御は未実装。本番接続、dump、リハーサル、本番適用も未実施。下記の受入条件は今後通す条件であり、通過済みの検証ではない。
