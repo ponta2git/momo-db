@@ -14,7 +14,7 @@ claim が成功する transaction 内で counter を checked 加算し、同じ�
 
 tail 全体を通常の migrator の一つの transaction で適用する。global slot の欠落、負の元 fence、加算余地のない最大値、既に使われた新 counter は診断コードで拒否する。lock の競合は変更前に失敗し、writer 停止を確認して再試行する。旧 writer の lock 順序との待合せを避けるため、table lock に `NOWAIT` を使う。
 
-writer 停止の実証は P0 writer inventory / frozen / CI guard で行う。SQL の lock は入力値を固定するもので、process 停止の証明にはしない。process 停止後に残る `running` 行は有効な保存状態であり、active lease、attempt、global slot と他の全旧値を保持する。
+writer 停止と保全の確認は、メンテナンス切替時の全 writer 停止・backup・保存値比較で行う。SQL の lock は入力値を固定するもので、process 停止の証明にはしない。process 停止後に残る `running` 行は有効な保存状態であり、active lease、attempt、global slot と他の全旧値を保持する。適用済み `0078` の SQL コメントに残る P0 停止手順は履歴として保持し、現行の停止確認には用いない。
 
 **backfill 後は新 consumer 切替完了まで旧 claim writer を再開しない。** 停止切替は [正規手順](development.md#6-適用と-release-順序) に従う。この expansion では `worker_execution_slots` を維持する。global slot を廃止する段階では、切替直前に同じ seed を再計算するか、その前に各 claim が新 counter を global fence 以上へ同一 transaction で更新する consumer を全 writer へ配布する。expansion 時点の seed だけで、旧 global claim が再開した後の安全性を保証しない。
 
