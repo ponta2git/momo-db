@@ -16,7 +16,10 @@ export async function inspectFinalSource(sql, url, repository, { allowAnyLedger 
       // Statistics snapshots are cached within a transaction unless cleared.
       await tx`SELECT pg_stat_clear_snapshot()`;
       const [clients] = await tx`SELECT count(*)::int AS count FROM pg_stat_activity
-        WHERE datname=current_database() AND backend_type='client backend' AND pid<>pg_backend_pid()`;
+        WHERE datname=current_database() AND (backend_type='client backend' OR backend_type IS NULL)
+          AND pid<>pg_backend_pid()`;
+      // Other login roles can have backend_type hidden without pg_read_all_stats.
+      // An unknown backend is not evidence that its connection has drained.
       check(clients.count === 0, 'DATABASE_CLIENTS_NOT_DRAINED');
     };
     await noOtherClients();
