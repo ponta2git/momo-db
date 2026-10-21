@@ -89,6 +89,8 @@
 
 ### P3. 最終データ判定と停止中の実行経路を作る
 
+今回の実施は、既存 CLI の全工程経路を先に成立させる。短縮経路は、全工程の実測が許容停止時間と復旧余裕に収まらない場合だけ検討する。P3・P4 の合格条件は本節の証拠生成・拒否条件と、P4 の DB 保全・通常業務・旧版復旧・総合リハーサルに固定する。不具合への対応は原因修正、失敗した既存ケース、影響する必須 gate で閉じ、無関係な成功 gate を再開しない。通信等の無変更再試行は原則一回とし、migration の結果不明は回数にかかわらず読み取り分類を先に行う。
+
 P1 の SQL 入口へ渡す最終証拠 producer `.github/workflows/cutover-final-evidence.yml` は、この工程で実装する。短い経路・全工程の代替経路のどちらでも、固定3 ref / profile、停止・backup・検証の時刻と有効期限、復元して読み出した backup、最終 source の全保存値・schema・role・ledger・sequence・locale、3 Machine の停止設定を実測から生成する。`cutover-guard.mjs` の契約と SQL workflow の候補 SHA / producer run / attempt / artifact digest 照合へ接続し、欠落・古い証拠・候補不一致・途中失敗を拒否するところまで隔離 copy で通す。SQL 成功後の本番全件比較と、結果不明時の読み取り専用状態分類も別に必要である。
 
 停止後に使う判定器として、新しい backup を復元して読み、成功済み rehearsal の**復元 baseline**と source の全保存値・schema・ledger・sequence・locale を比較する経路を作る。宣言前は隔離 copy から模擬最終 backup を作って試す。role・接続先・設定は事前の source 監査・固定設定に照合する。MVCC snapshot だけでは sequence と停止継続を証明しない。実際の停止後に backup 以降の書込みや自動再起動があれば backup と後続証拠を失効させる。
@@ -110,11 +112,14 @@ P1 の SQL 入口へ渡す最終証拠 producer `.github/workflows/cutover-final
 3. 実 instance の source role / boot 監査を採り直し、smoke / recovery copy の primary owner と Worker 追加 reader の role mapping を確認する。隔離した**同じ実 image**を copy に接続し、各 process 自身の接続先・role・ledger・boot を証明する。maintenance probe の後、実 consumer の通常起動・readiness と、C5 で使う代表的な業務データの読み取りを用意して通す。smoke copy で旧 ID / URL / 認証・replay、旧 artifact / basis からの次の操作、worker lease / fencing と publication、Summit の保存済み通知・再送を実データの対象で確かめる。OCR 対象には隔離した実画像 mirror を用意し、外部配送は stub に限定する。操作ごとに入力、値域・境界、許容する行・列・時刻・副作用を先に定め、前後の差分を読む。実データに対象がない場合は fixture の結果と区別し、必須 gate を空欄のまま合格にしない。
 4. 別の recovery DB に実際の旧 image を接続し、旧 ledger・role・設定で起動、代表的な読取りと安全な書込みを確認する。元 DB への pool が残らないことも証明する。復旧 artifact と配備入口が利用できなければ不合格とする。
 5. 短い経路を採用する場合は、同一 backup から作った別々の実 copy で P3 の短い経路と全工程の判定・結果を照合する。その backup から作った隔離 fixture で変更行・sequence、異常、中断の分岐も試し、段階別時間を記録する。短い経路が合格しない場合は停止・source guard を付けた P3 の代替経路で全工程を測る。
+6. 隔離した実 copy で、模擬停止から最終 backup / 復元読取り、最終データ判定、正規 migrator の模擬適用、適用後全件比較、固定 image の配備・読取り、再開および旧組への復旧までを一巡して測る。P5 ではこの技術検証を重複実行せず、候補と前提の鮮度、担当・承認待機・通知・停止予算の最終判断を行う。実測前に停止時間を保証しない。
+
+長い一巡の前に文書・実装を commit し、候補と入力・設定、各操作の期待差分を確定する。失敗を理由に新しい検証工程を自動追加しない。既存の合格条件では判定できない具体的な事実が見つかった場合だけ、必要最小限の追加を明示する。DB 候補 SHA が変わった場合や migrator 実行証拠を失った場合は、新 run が必要であることを前提に、認証済み snapshot の再利用条件を適用する。
 
 ### P5. 宣言可否と停止時間を確定する
 
 - 全 writer・pooler・scheduler・batch・手動 / CI 変更経路と停止・drain 担当を確定し、3 repository の固定 ref が先行 push / release に上書きされないようにする。新旧 image の digest・保持期限・再配備入口、backup の復元先と権限、利用者通知、承認者の待機を確認する。
-- 実コピーの隔離環境で、模擬最終 backup の復元読取り、行・sequence が変わった場合の最終データ判定（短い経路なら一回の copy migration、代替経路なら現行 CLI 全工程）、本番と同じ正規 migrator の模擬適用、全件比較、固定 image 配備・read-only 確認、任意の中止点から旧組へ戻る経路を測る。本番 DB への適用はここで行わない。利用者が書けなくなってから再開するまでを停止時間とし、開始期限・各中止期限・復旧余裕を private runbook に置く。実測がない間は短縮分数や再開時刻を宣言しない。
+- P4 の総合リハーサルの実測を使い、利用者が書けなくなってから再開するまでの停止時間、開始期限・各中止期限・復旧余裕を private runbook に確定する。本番 DB への適用はここで行わない。実測がない間は短縮分数や再開時刻を宣言しない。
 - 停止中の直列工程は `drain → 最終 backup / 復元読取り → 最終データ判定 → 承認・本番 SQL → 本番全件比較 → 固定 image 配備・最小確認 → 再開`。候補 build / scan / CI、registry push、reference / no-op、広範な業務・復旧 smoke は宣言前に終える。停止後も安全な source 比較と復元確認、承認者の待機は並行できる範囲で進める。
 - 同じ固定候補について P1・P2・P4 と P3 で選んだ経路、上記の実測が独立して成功し、失敗・未実施が解消した場合だけ宣言する。approval のクリックで SQL または配備が始まる job は、対応する工程3の直前 gate まで承認しない。停止後に初めて調整する手順や復旧余裕不足が残れば宣言しない。
 

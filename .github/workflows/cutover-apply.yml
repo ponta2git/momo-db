@@ -1,8 +1,13 @@
-name: Protected cutover SQL
+name: Protected cutover SQL and read-only classification
 
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Classify reads state without rerunning SQL or requiring SQL approval
+        type: choice
+        options: [apply, classify]
+        default: apply
       candidate_sha:
         description: Exact master SHA already passed CI
         required: true
@@ -58,6 +63,7 @@ jobs:
 
   approve:
     needs: provenance
+    if: inputs.operation != 'classify'
     runs-on: ubuntu-latest
     environment: production-db
     steps:
@@ -67,7 +73,8 @@ jobs:
         run: echo "Approved fixed cutover candidate $APPROVED_SHA."
 
   apply:
-    needs: approve
+    needs: [provenance, approve]
+    if: always() && needs.provenance.result == 'success' && (inputs.operation == 'classify' || needs.approve.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: CI Actions
@@ -76,6 +83,8 @@ jobs:
       NEON_API_KEY: ${{ secrets.CUTOVER_NEON_API_KEY }}
       FLY_API_TOKEN: ${{ secrets.CUTOVER_FLY_READ_TOKEN }}
       MOMO_CUTOVER_APPROVED_SHA: ${{ inputs.candidate_sha }}
+      MOMO_CUTOVER_EVIDENCE_RUN: ${{ inputs.evidence_run_id }}
+      MOMO_CUTOVER_EVIDENCE_ATTEMPT: ${{ inputs.evidence_attempt }}
       MOMO_REHEARSAL_PROJECT_ID: ${{ vars.MOMO_REHEARSAL_PROJECT_ID }}
       MOMO_REHEARSAL_BRANCH_ID: ${{ vars.MOMO_REHEARSAL_BRANCH_ID }}
       MOMO_REHEARSAL_ENDPOINT_ID: ${{ vars.MOMO_REHEARSAL_ENDPOINT_ID }}
@@ -123,19 +132,31 @@ jobs:
       - name: Connection preflight
         run: pnpm db:preflight:ci
       - name: Compare stopped Machines and final source immediately before canonical SQL
+        id: apply
+        if: inputs.operation != 'classify'
         run: |
           node scripts/migration/cutover-apply.mjs \
             --evidence "$RUNNER_TEMP/cutover-evidence/final-evidence.json.enc" \
             --key-file "$RUNNER_TEMP/cutover-evidence/key" \
             --output "$RUNNER_TEMP/cutover-evidence/attempt.json.enc"
+      - name: Read-only full postcomparison or unknown-result classification
+        if: always() && (inputs.operation == 'classify' || steps.apply.outcome == 'success' || steps.apply.outcome == 'failure')
+        run: |
+          node scripts/migration/cutover-classify.mjs \
+            --evidence "$RUNNER_TEMP/cutover-evidence/final-evidence.json.enc" \
+            --key-file "$RUNNER_TEMP/cutover-evidence/key" \
+            --output "$RUNNER_TEMP/cutover-evidence/classification.json.enc"
       - name: Verify target history
+        if: steps.apply.outcome == 'success'
         run: pnpm db:verify:ci
       - name: Preserve encrypted outcome for read-only classification
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cutover-sql-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cutover-evidence/attempt.json.enc
+          path: |
+            ${{ runner.temp }}/cutover-evidence/attempt.json.enc
+            ${{ runner.temp }}/cutover-evidence/classification.json.enc
           if-no-files-found: ignore
           retention-days: 14
       - name: Remove decryption key

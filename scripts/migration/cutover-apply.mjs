@@ -1,31 +1,37 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { lstat } from 'node:fs/promises';
-import { connect, databaseLocation, inspectConnection, fingerprint } from './database.mjs';
+import { connect, databaseLocation, inspectConnection, inspectServer, fingerprint } from './database.mjs';
 import { inspectSchema } from './inventory.mjs';
 import { expectedCutoverBaseline, cutoverBaselineMatches } from '../check-cutover-baseline.mjs';
 import { digest, loadKey, readJson, writeJson, requireCondition as check, RehearsalError } from './files.mjs';
 import { sourceApproval, verifySourceEndpoint } from './source-preflight.mjs';
 import { guardedApply, configurationDigest } from './cutover-guard.mjs';
 import { command } from './process.mjs';
+import { inspectCanonicalIdentityTransition } from './canonical-identities.mjs';
 
-export async function inspectFinalSource(sql, url, repository) {
+export async function inspectFinalSource(sql, url, repository, { allowAnyLedger = false, profile } = {}) {
   return sql.begin('isolation level repeatable read read only', async tx => {
     const noOtherClients = async () => {
       // Statistics snapshots are cached within a transaction unless cleared.
       await tx`SELECT pg_stat_clear_snapshot()`;
       const [clients] = await tx`SELECT count(*)::int AS count FROM pg_stat_activity
-        WHERE datname=current_database() AND backend_type='client backend' AND pid<>pg_backend_pid()`;
+        WHERE datname=current_database() AND (backend_type='client backend' OR backend_type IS NULL)
+          AND pid<>pg_backend_pid()`;
+      // Other login roles can have backend_type hidden without pg_read_all_stats.
+      // An unknown backend is not evidence that its connection has drained.
       check(clients.count === 0, 'DATABASE_CLIENTS_NOT_DRAINED');
     };
     await noOtherClients();
     const [identity] = await tx`SELECT current_user AS role, session_user AS login_role,
       current_setting('transaction_read_only') AS read_only`;
     check(identity.role === identity.login_role && identity.read_only === 'on', 'DIRECT_READ_ONLY_LOGIN_REQUIRED');
-    const connection = await inspectConnection(tx, repository);
     const ledger = await tx`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`;
-    check(cutoverBaselineMatches(expectedCutoverBaseline(`${repository}/drizzle`), ledger),
+    check(allowAnyLedger || cutoverBaselineMatches(expectedCutoverBaseline(`${repository}/drizzle`), ledger),
     'NOT_BASELINE_CLASSIFY_WITHOUT_APPLYING');
+    const normalizedLedger = ledger.map(({ hash, created_at }) => ({ hash, created_at: String(created_at) }));
+    const connection = allowAnyLedger ? { server: await inspectServer(tx), ledger: normalizedLedger,
+      ledgerDigest: digest(normalizedLedger) } : await inspectConnection(tx, repository);
     // This covers application role flags/defaults and all membership edges. P3
     // uses this same observation, rather than comparing a hand-written role name.
     const roles = await tx`SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
@@ -43,12 +49,15 @@ export async function inspectFinalSource(sql, url, repository) {
     const result = { connection, role: identity.role, rolesDigest: configurationDigest({ roles, memberships, defaultPrivileges }),
       locationIdentity: databaseLocation(url).identity, schema: await inspectSchema(tx),
       rows: await fingerprint(tx, { sequences: true }) };
+    if (profile && digest(connection.ledger) === digest(profile.history.entries)) {
+      result.transition = await inspectCanonicalIdentityTransition(tx, profile);
+    }
     await noOtherClients();
     return result;
   });
 }
 
-async function machineInventory(expected) {
+export async function machineInventory(expected) {
   check(process.env.FLY_API_TOKEN, 'FLY_READ_ACCESS_REQUIRED');
   const result = [];
   for (const item of expected) {
@@ -60,7 +69,15 @@ async function machineInventory(expected) {
     const machines = await response.json();
     check(Array.isArray(machines) && machines.length === 1 && machines[0].id === item.id,
       'SINGLE_MACHINE_WRITER_INVENTORY_CHANGED');
-    result.push(machines[0]);
+    const detail = await fetch(`https://api.machines.dev/v1/apps/${item.app}/machines/${item.id}`, {
+      headers: { Authorization: `Bearer ${process.env.FLY_API_TOKEN}` },
+      redirect: 'error', signal: AbortSignal.timeout(15000),
+    });
+    check(detail.ok, 'MACHINE_EVENTS_UNAVAILABLE');
+    const machine = await detail.json();
+    check(machine.id === item.id && machine.instance_id === machines[0].instance_id &&
+      Array.isArray(machine.events) && machine.events.length > 0, 'MACHINE_EVENTS_REQUIRED');
+    result.push({ ...machine, eventsDigest: configurationDigest(machine.events) });
   }
   return result;
 }
@@ -83,6 +100,9 @@ async function main() {
     process.env.GITHUB_REF === 'refs/heads/master' &&
     process.env.GITHUB_SHA === candidate &&
     process.env.MOMO_CUTOVER_APPROVED_SHA === candidate, 'PROTECTED_FIXED_COMMIT_REQUIRED');
+  check(evidence.producer?.runId === process.env.MOMO_CUTOVER_EVIDENCE_RUN &&
+    evidence.producer?.attempt === process.env.MOMO_CUTOVER_EVIDENCE_ATTEMPT,
+  'EVIDENCE_PRODUCER_ATTEMPT_DIFFERS');
   const url = process.env.DIRECT_URL;
   const approval = sourceApproval();
   await verifySourceEndpoint(url, approval);

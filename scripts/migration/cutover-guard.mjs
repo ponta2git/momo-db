@@ -10,7 +10,7 @@ export const configurationDigest = value => digest(canonical(value));
 
 /** P3 produces this encrypted handoff; missing or provisional evidence never authorizes SQL. */
 export function validateCutoverEvidence(evidence, { candidate, now = Date.now() }) {
-  check(evidence?.formatVersion === 1 && evidence.kind === 'final-cutover-evidence',
+  check(evidence?.formatVersion === 2 && evidence.kind === 'final-cutover-evidence',
     'FINAL_CUTOVER_EVIDENCE_REQUIRED');
   check(sha(candidate) && evidence.candidate === candidate &&
     evidence.profile === 'canonical-identities-retired-slots-v1', 'CUTOVER_CANDIDATE_DIFFERS');
@@ -20,12 +20,18 @@ export function validateCutoverEvidence(evidence, { candidate, now = Date.now() 
     Date.parse(evidence.expiresAt) > now &&
     Date.parse(evidence.frozenAt) <= Date.parse(evidence.backup?.capturedAt) &&
     Date.parse(evidence.backup?.capturedAt) <= Date.parse(evidence.validatedAt) &&
-    Date.parse(evidence.validatedAt) <= now, 'FINAL_EVIDENCE_TIME_INVALID');
+    Date.parse(evidence.validatedAt) <= now &&
+    Date.parse(evidence.expiresAt) <= Date.parse(evidence.frozenAt) + 120 * 60 * 1000,
+  'FINAL_EVIDENCE_TIME_INVALID');
   check(evidence.backup?.restoredAndRead === true && hash(evidence.backup.archiveDigest) &&
     hash(evidence.backup.restoredReportDigest) &&
     evidence.finalData?.passed === true &&
     ['unchanged', 'affected-inputs-verified', 'full-rehearsal'].includes(evidence.finalData.path) &&
     hash(evidence.finalData.reportDigest), 'RESTORED_FINAL_BACKUP_AND_DATA_GATE_REQUIRED');
+  check(evidence.report && evidence.verification &&
+    digest(evidence.report) === evidence.finalData.reportDigest &&
+    digest(evidence.verification) === evidence.verificationDigest,
+  'FINAL_COMPARISON_REPORTS_REQUIRED');
   check(evidence.source?.rows?.algorithm === 'sha256-row-multiset-v2' &&
     Array.isArray(evidence.source.rows.tables) && Array.isArray(evidence.source.rows.sequences) &&
     Array.isArray(evidence.source.schema?.tables) && evidence.source.connection?.ledger?.length === 73 &&
@@ -37,7 +43,7 @@ export function validateCutoverEvidence(evidence, { candidate, now = Date.now() 
     evidence.machines.every(item => ['api', 'worker', 'summit'].includes(item.consumer) &&
       /^[a-z0-9-]+$/.test(item.app) && /^[a-z0-9]+$/.test(item.id) &&
       typeof item.instanceId === 'string' && item.instanceId.length > 0 &&
-      hash(item.configDigest)), 'THREE_STOPPED_MACHINES_REQUIRED');
+      hash(item.configDigest) && hash(item.eventsDigest)), 'THREE_STOPPED_MACHINES_REQUIRED');
   return evidence;
 }
 
@@ -50,7 +56,8 @@ export function verifyStoppedMachines(expected, actual) {
       machine.state === 'stopped' && machine.config?.restart?.policy === 'no' &&
       !machine.config?.schedule && !machine.config?.standbys?.length &&
       (machine.config?.services ?? []).every(service => service.autostart === false) &&
-      configurationDigest(machine.config) === wanted.configDigest, 'WRITER_NOT_PINNED_AND_STOPPED');
+      configurationDigest(machine.config) === wanted.configDigest &&
+      machine.eventsDigest === wanted.eventsDigest, 'WRITER_NOT_PINNED_AND_STOPPED');
   }
 }
 

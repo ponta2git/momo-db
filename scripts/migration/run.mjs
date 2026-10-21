@@ -50,7 +50,7 @@ export function parseArguments(args) {
   return { action, options };
 }
 
-async function candidate() {
+export async function candidate() {
   requireCondition(process.versions.node.split('.')[0] === '24', 'NODE_24_REQUIRED');
   requireCondition(await command('git', ['status', '--porcelain'], { cwd: repository }) === '', 'CLEAN_COMMITTED_CANDIDATE_REQUIRED');
   const sha = await command('git', ['rev-parse', 'HEAD'], { cwd: repository });
@@ -70,7 +70,7 @@ async function sourceUrl(manifest, key) {
   return value.sourceUrl;
 }
 
-async function audit(sql, { identifiers = false, sequences = true, profile } = {}) {
+export async function audit(sql, { identifiers = false, sequences = true, profile } = {}) {
   const connection = await inspectConnection(sql, repository);
   requireCondition(Number(connection.server.version) >= 180000 && Number(connection.server.version) < 190000, 'POSTGRES_18_REQUIRED');
   const schema = await inspectSchema(sql);
@@ -90,7 +90,7 @@ async function withDatabase(url, operation) {
   finally { await sql.end().catch(() => {}); }
 }
 
-function compareRestore(before, after, { sequences = false } = {}) {
+export function compareRestore(before, after, { sequences = false } = {}) {
   compareDatabaseLocale(before.connection.server, after.connection.server);
   requireCondition(before.connection.ledgerDigest === after.connection.ledgerDigest, 'RESTORED_LEDGER_DIFFERS');
   requireCondition(digest(schemaStructure(before.schema)) === digest(schemaStructure(after.schema)), 'RESTORED_SCHEMA_DIFFERS');
