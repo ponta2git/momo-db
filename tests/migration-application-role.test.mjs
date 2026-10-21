@@ -8,6 +8,7 @@ import { inspectSchema } from '../scripts/migration/inventory.mjs';
 import { cleanupLocal, createDatabase, localUrl, startLocal, withLocalConnection } from '../scripts/migration/local.mjs';
 import { applicationOwnerPlan, captureApplicationRoleAudit, mapApplicationOwner } from '../scripts/migration/application-role.mjs';
 import { parseArguments } from '../scripts/migration/run.mjs';
+import { mapApplicationReader } from '../scripts/migration/application-reader.mjs';
 
 const privileges = names => Object.fromEntries(names.map(name => [name, true]));
 function fixture() {
@@ -58,6 +59,60 @@ test('source role mapping binds the complete observed owner contract and rejects
     const changed = fixture(); mutate(changed);
     assert.throws(() => applicationOwnerPlan(changed.source, changed.audit));
   }
+});
+
+test('reader mapping supports both copies and reproduces existing and future object grants', async () => {
+  const container = process.env.MOMO_DB_TEST_CONTAINER;
+  assert.match(container ?? '', /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/);
+  const image = await command('docker', ['inspect', '--format', '{{.Image}}', container]);
+  const manifest = { runId: randomUUID(), postgres: { id: image }, local: null,
+    profile: 'canonical-identities-retired-slots-v1', checks: { migrationSchema: true, migratorFirstRun: true } };
+  const f = fixture(), ownerPlan = applicationOwnerPlan(f.source, f.audit);
+  const readerPlan = { formatVersion: 1, scope: 'analysis-reader-effective-database-privileges',
+    sourceAuditDigest: digest('reader-fixture'), sourceSequences: ['drizzle.__drizzle_migrations_id_seq'],
+    settings: ['default_transaction_read_only=on', 'search_path=public'],
+    publicTableSelect: true, newOwnerTableSelect: true, newOwnerSequenceSelect: true };
+  const server = { encoding: 'UTF8', collation: 'C', ctype: 'C', localeProvider: 'b', locale: 'C.UTF-8', icuRules: null,
+    collationVersion: '1', actualCollationVersion: '1' };
+  const readerRoles = [];
+  try {
+    await startLocal(manifest, async () => {}, { server });
+    await withLocalConnection(manifest, async () => {
+      for (const copy of ['smoke', 'recovery']) {
+        const database = `momo_rehearsal_${copy}`;
+        await createDatabase(manifest, database);
+        const admin = connect(localUrl(manifest, database), { readOnly: false });
+        try {
+          await admin.unsafe(`CREATE SCHEMA drizzle;
+            CREATE TABLE drizzle.__drizzle_migrations(id serial PRIMARY KEY,hash text,created_at bigint);
+            CREATE TABLE public.members(id text PRIMARY KEY); INSERT INTO public.members VALUES ('retained');`);
+          if (copy === 'smoke') for (const table of ['held_events', 'matches']) {
+            await admin.unsafe(`CREATE TABLE public.${table}(public_id bigint GENERATED ALWAYS AS IDENTITY)`);
+          }
+        } finally { await admin.end(); }
+        const owner = await mapApplicationOwner(manifest, database, ownerPlan);
+        const proof = await mapApplicationReader(manifest, database, readerPlan, owner);
+        readerRoles.push(proof.localRole);
+        assert.equal(proof.applicationDataUnchanged, true);
+        assert.equal(proof.ownerDefaultsMapped, true);
+        assert.equal(proof.newSequenceSelect.length, copy === 'smoke' ? 2 : 0);
+        const url = new URL(localUrl(manifest, database)); url.username = owner.localRole;
+        const app = connect(url.toString(), { readOnly: false });
+        try {
+          await app.unsafe('CREATE TABLE public.future_record(id bigint GENERATED ALWAYS AS IDENTITY,value text)');
+          const [actual] = await app`SELECT
+            has_table_privilege(${proof.localRole},'public.future_record','SELECT') AS table_read,
+            has_table_privilege(${proof.localRole},'public.future_record','INSERT') AS table_write,
+            has_sequence_privilege(${proof.localRole},'public.future_record_id_seq','SELECT') AS sequence_read,
+            has_sequence_privilege(${proof.localRole},'public.future_record_id_seq','USAGE') AS sequence_use,
+            has_sequence_privilege(${proof.localRole},'drizzle.__drizzle_migrations_id_seq','SELECT') AS old_sequence_read`;
+          assert.deepEqual(actual, { table_read: true, table_write: false, sequence_read: true,
+            sequence_use: false, old_sequence_read: false });
+        } finally { await app.end(); }
+      }
+      assert.notEqual(readerRoles[0], readerRoles[1]);
+    });
+  } finally { if (manifest.local) await cleanupLocal(manifest, async () => {}); }
 });
 
 test('application mapping commands require an explicit private audit and only a smoke or recovery copy', () => {

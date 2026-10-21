@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applicationReaderPlan } from '../scripts/migration/application-reader.mjs';
+import { applicationReaderPlan, readerSequenceGrants } from '../scripts/migration/application-reader.mjs';
 import { digest } from '../scripts/migration/files.mjs';
 
 const table = (schema, name) => ({ schema, name, kind: 'r', columns: [{ name: 'id' }],
@@ -32,6 +32,25 @@ test('observed reader plan preserves read-only defaults and reviewed future tabl
   assert.equal(plan.scope, 'analysis-reader-effective-database-privileges');
   assert.deepEqual(plan.settings, ['default_transaction_read_only=on', 'search_path=public']);
   assert.equal(plan.newOwnerTableSelect, true);
+  assert.equal(plan.newOwnerSequenceSelect, true);
+});
+
+test('only verified public-ID identities inherit the audited new-sequence SELECT grant', () => {
+  const plan = applicationReaderPlan(source, audit, 'reader');
+  const manifest = { profile: 'canonical-identities-retired-slots-v1',
+    checks: { migrationSchema: true, migratorFirstRun: true } };
+  const sequences = ['held_events', 'matches'].map(table => ({ schema: 'public',
+    name: `${table}_public_id_seq`, table_schema: 'public', table_name: table,
+    column_name: 'public_id', identity: 'a' }));
+  assert.deepEqual(readerSequenceGrants(manifest, 'momo_rehearsal_smoke', plan, sequences),
+    ['public.held_events_public_id_seq', 'public.matches_public_id_seq']);
+  assert.throws(() => readerSequenceGrants(manifest, 'momo_rehearsal_recovery', plan, sequences));
+  assert.throws(() => readerSequenceGrants({ ...manifest, checks: {} }, 'momo_rehearsal_smoke', plan, sequences));
+  for (const mutate of [rows => rows.pop(), rows => { rows[0].identity = ''; },
+    rows => { rows[0].column_name = 'other'; }, rows => rows.push({ schema: 'public', name: 'unknown' })]) {
+    const changed = structuredClone(sequences); mutate(changed);
+    assert.throws(() => readerSequenceGrants(manifest, 'momo_rehearsal_smoke', plan, changed));
+  }
 });
 
 test('elevated, partial, or changed reader contracts are not mapped as read-only', () => {
