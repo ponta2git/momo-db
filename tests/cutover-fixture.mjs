@@ -28,4 +28,3 @@ export function fixture() {
       instanceId: item.instance_id, eventsDigest: item.eventsDigest, configDigest: configurationDigest(item.config) })) };
   return { evidence, actual };
 }
-
