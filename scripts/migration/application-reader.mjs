@@ -43,33 +43,58 @@ export function applicationReaderPlan(source, audit, roleName) {
   return { formatVersion: 1, scope: 'analysis-reader-effective-database-privileges',
     sourceAuditDigest: digest(audit), sourceRole: roleName,
     sourceSequences: access.sequences.map(key).sort(), settings,
-    publicTableSelect: true, newOwnerTableSelect: true };
+    publicTableSelect: true, newOwnerTableSelect: true, newOwnerSequenceSelect: true };
+}
+
+export function readerSequenceGrants(manifest, database, plan, sequences) {
+  const added = sequences.filter(item => !plan.sourceSequences.includes(key(item)));
+  if (!added.length) return [];
+  const reviewed = ['held_events', 'matches'];
+  check(database === 'momo_rehearsal_smoke' &&
+    ['public-identifiers-v1', 'canonical-identities-v1', 'canonical-identities-retired-slots-v1'].includes(manifest.profile) &&
+    manifest.checks?.migrationSchema === true && manifest.checks?.migratorFirstRun === true &&
+    added.length === 2 && reviewed.every(table => added.some(item =>
+      item.schema === 'public' && item.name === `${table}_public_id_seq` &&
+      item.table_schema === 'public' && item.table_name === table &&
+      item.column_name === 'public_id' && item.identity === 'a')),
+  'NEW_READER_SEQUENCE_REQUIRES_REVIEW');
+  // 0076 creates these identities as the source owner, whose audited default
+  // ACL grants SELECT (but neither USAGE nor UPDATE) to the reader group.
+  return added.map(key).sort();
 }
 
 /**
  * Copy-only mapping after the owner mapping. Group membership is collapsed into
  * effective SELECT grants; this does not emulate SET ROLE or provider privileges.
- * New sequences require review rather than guessing whether they were renamed.
+ * Only the two identity sequences from the verified public-ID transition have
+ * reviewed new-object grants; every other new sequence still fails closed.
  */
 export async function mapApplicationReader(manifest, database, plan, ownerProof,
   { beforeMutation = async () => {} } = {}) {
   check(plan?.formatVersion === 1 && plan.scope === 'analysis-reader-effective-database-privileges' &&
     /^[a-f0-9]{64}$/.test(plan.sourceAuditDigest) && plan.publicTableSelect === true &&
-    plan.newOwnerTableSelect === true && same(plan.settings, settings), 'VALIDATED_READER_PLAN_REQUIRED');
+    plan.newOwnerTableSelect === true && plan.newOwnerSequenceSelect === true &&
+    same(plan.settings, settings), 'VALIDATED_READER_PLAN_REQUIRED');
   check(ownerProof?.runId === manifest.runId && ownerProof.database === database &&
     ownerProof.applicationDataUnchanged === true && ownerProof.access?.superuser === false &&
     ['momo_rehearsal_smoke', 'momo_rehearsal_recovery'].includes(database),
   'VERIFIED_OWNER_COPY_REQUIRED');
   await assertOwned(manifest);
   return withLocalConnection(manifest, async () => {
-    const name = `momo_rehearsal_reader_${manifest.runId.replaceAll('-', '').slice(0, 12)}`;
+    const name = `momo_rehearsal_reader_${manifest.runId.replaceAll('-', '').slice(0, 12)}_${database.endsWith('_smoke') ? 'smoke' : 'recovery'}`;
     const admin = connect(localUrl(manifest, database), { readOnly: false });
     let before;
     try {
       before = await admin.begin('isolation level repeatable read read only', fingerprint);
-      const sequences = await admin`SELECT n.nspname AS schema,c.relname AS name FROM pg_class c
-        JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','drizzle') AND c.relkind='S'`;
-      check(sequences.every(item => plan.sourceSequences.includes(key(item))), 'NEW_READER_SEQUENCE_REQUIRES_REVIEW');
+      const sequences = await admin`SELECT n.nspname AS schema,c.relname AS name,
+        tn.nspname AS table_schema,t.relname AS table_name,a.attname AS column_name,a.attidentity AS identity
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        LEFT JOIN pg_depend d ON d.classid='pg_class'::regclass AND d.objid=c.oid
+          AND d.refclassid='pg_class'::regclass AND d.deptype IN ('a','i')
+        LEFT JOIN pg_class t ON t.oid=d.refobjid LEFT JOIN pg_namespace tn ON tn.oid=t.relnamespace
+        LEFT JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=d.refobjsubid
+        WHERE n.nspname IN ('public','drizzle') AND c.relkind='S'`;
+      const sequenceSelect = readerSequenceGrants(manifest, database, plan, sequences);
       const [unsupported] = await admin`SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname IN ('public','drizzle') AND (c.relrowsecurity OR c.relforcerowsecurity OR c.relkind IN ('v','m','f','p'))) OR
         EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -84,6 +109,12 @@ export async function mapApplicationReader(manifest, database, plan, ownerProof,
         await admin.unsafe(`ALTER ROLE "${name}" SET default_transaction_read_only=on`);
         await admin.unsafe(`ALTER ROLE "${name}" SET search_path=public`);
         await admin.unsafe(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${name}"`);
+        for (const sequence of sequences.filter(item => sequenceSelect.includes(key(item)))) {
+          await admin.unsafe(`GRANT SELECT ON SEQUENCE ${pg.escapeIdentifier(sequence.schema)}.${pg.escapeIdentifier(sequence.name)} TO "${name}"`);
+        }
+        for (const type of ['TABLES', 'SEQUENCES']) {
+          await admin.unsafe(`ALTER DEFAULT PRIVILEGES FOR ROLE ${pg.escapeIdentifier(ownerProof.localRole)} IN SCHEMA public GRANT SELECT ON ${type} TO "${name}"`);
+        }
         await admin.unsafe('COMMIT');
       } catch (error) { await admin.unsafe('ROLLBACK').catch(() => {}); throw error; }
 
@@ -105,6 +136,12 @@ export async function mapApplicationReader(manifest, database, plan, ownerProof,
           WHERE n.nspname IN ('public','drizzle') AND c.relkind='r'`);
         check(tables.length > 0 && tables.every(item => item.allowed ===
           (item.schema === 'public' && item.privilege === 'SELECT')), 'READER_EFFECTIVE_TABLE_GRANTS_DIFFER');
+        const { rows: sequenceAccess } = await reader.query(`SELECT n.nspname AS schema,c.relname AS name,
+          p AS privilege,has_sequence_privilege(c.oid,p) AS allowed FROM pg_class c
+          JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN unnest(ARRAY['SELECT','USAGE','UPDATE']) p
+          WHERE n.nspname IN ('public','drizzle') AND c.relkind='S'`);
+        check(sequenceAccess.every(item => item.allowed ===
+          (item.privilege === 'SELECT' && sequenceSelect.includes(key(item)))), 'READER_EFFECTIVE_SEQUENCE_GRANTS_DIFFER');
         for (const table of tables.filter(item => item.privilege === 'SELECT' && item.allowed)) {
           await reader.query(`SELECT * FROM ${pg.escapeIdentifier(table.schema)}.${pg.escapeIdentifier(table.name)} LIMIT 0`);
         }
@@ -128,6 +165,7 @@ export async function mapApplicationReader(manifest, database, plan, ownerProof,
         sourceAuditDigest: plan.sourceAuditDigest, planDigest: digest(plan),
         applicationDataUnchanged: true, defaultReadOnly: true, publicReads: true,
         writeDenied: true, ledgerDenied: true, listenSubscriptions: ['processing_jobs', 'ocr_submissions'],
+        newSequenceSelect: sequenceSelect, ownerDefaultsMapped: true,
         scope: plan.scope, mappedAt: new Date().toISOString() };
     } finally { await admin.end(); }
   });
