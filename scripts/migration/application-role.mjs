@@ -74,6 +74,11 @@ export async function captureApplicationRoleAudit(tx, source, consumers) {
   check(digest(ledger.map(({hash,created_at})=>({hash,created_at}))) === digest(source.connection.ledger.map(({hash,created_at})=>({hash,created_at}))),
     'SOURCE_LEDGER_CHANGED');
   const names = [...new Set([...consumers.map(item => item.role), sourceRole])].sort();
+  const defaultPrivileges = await tx`SELECT pg_get_userbyid(a.defaclrole) AS owner,
+    n.nspname AS schema, a.defaclobjtype AS type, x.privilege_type AS privilege,
+    x.is_grantable, CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee) END AS grantee
+    FROM pg_default_acl a LEFT JOIN pg_namespace n ON n.oid=a.defaclnamespace
+    CROSS JOIN LATERAL aclexplode(a.defaclacl) x ORDER BY owner,schema,type,grantee,privilege`;
   const roles = [];
   for (const name of names) {
     const rows = await tx`SELECT rolname AS name, rolsuper AS superuser, rolinherit AS inherits, rolcreaterole AS create_role,
@@ -111,7 +116,7 @@ export async function captureApplicationRoleAudit(tx, source, consumers) {
     roles.push({ role:rows[0], memberships, database, schemas, tables, columns, sequences, functions });
   }
   return { formatVersion:1, observedAt:new Date().toISOString(), snapshotSchemaDigest:digest(source.schema),
-    snapshotLedgerDigest:source.connection.ledgerDigest, consumers, sourceRole, roles };
+    snapshotLedgerDigest:source.connection.ledgerDigest, consumers, sourceRole, roles, defaultPrivileges };
 }
 
 async function roleFlags(sql, name) {

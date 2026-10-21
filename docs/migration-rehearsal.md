@@ -1,10 +1,12 @@
 # 本番コピーのローカル移行リハーサル
 
-`pnpm migration:rehearsal` は、本番を読み取り、暗号化した整合 snapshot を所有確認付きのローカル PostgreSQL 18 へ復元する。通常の migration は固定 commit の `pnpm db:migrate:ci` を使う。本番への migration / restore / maintenance 切替はこの入口に実装していない。
+`pnpm migration:rehearsal` は、本番を読み取り、暗号化した整合 snapshot を所有確認付きのローカル PostgreSQL 18 へ復元する。所有確認済みのローカル copy では固定 commit の正規 `pnpm exec drizzle-kit migrate` を使う。本番の通常 CI 入口とは分け、破壊的 tail を通常 CI から適用できない guard を維持する。本番への migration / restore / maintenance 切替はこの入口に実装していない。
+
+**この CLI の `rehearse` / `recover-rehearsal` が合格しても、切替リハーサルは完了しない。** 現行実装は DB の復元・移行・保存値比較と旧 DB の復元までを扱う。実 consumer image の起動・接続切替・業務操作、停止の継続、外部送信の遮断、本番適用は別の gate である。今回の `0073`–`0095` 切替で不足する実行入口と宣言条件は[現行の実行計画](plans/2026-10-20-production-cutover-execution.md#工程2メンテナンス宣言前の実装と合格条件)に記す。未実施の gate を `status.checks` の DB 成功で代替しない。
 
 ## 準備
 
-Node 24、repository 固定 pnpm、Docker 28 以降、取得済みの PostgreSQL 18 image を使う。image 内に OpenBSD / BusyBox の `nc` と system CA bundle が必要で、`prepare` が検査する。OpenBSD 版には `-N` を付け、migrator の終了時にも stdin EOF を PostgreSQL 側の接続終了へ伝える。未知の `nc` 実装は受け入れない。作業 tree は未追跡ファイルを含め clean にし、候補を commit する。CLI は SHA・lockfile・migration 履歴の digest を固定し、以降に変更があれば停止する。
+Node 24、repository 固定 pnpm、Docker 28 以降、取得済みの PostgreSQL 18 image を使う。image 内に OpenBSD / BusyBox の `nc` と system CA bundle が必要で、`prepare` が検査する。OpenBSD 版には `-N` を付け、migrator の終了時にも stdin EOF を PostgreSQL 側の接続終了へ伝える。未知の `nc` 実装は受け入れない。作業 tree は未追跡ファイルを含め clean にし、候補を commit する。CLI は SHA・lockfile・migration 履歴の digest を固定し、以降に変更があれば停止する。3 repo の対応する image・設定も別途固定し、CLI の DB 候補 SHA だけを一式の同一性証明としない。
 
 source と locale metadata が一致する image を選ぶ。Alpine は `C.UTF-8` の LC_COLLATE を `C` として初期化する場合があり、その差は許容しない。Debian 版が必要なら、データや接続設定を含まない stdin Dockerfile から中継用 `nc` と system CA bundle を追加する。作成後の image ID は `prepare` が固定する。
 
@@ -14,43 +16,54 @@ docker build --tag momo-db-rehearsal:18 - < scripts/migration/postgres.Dockerfil
 
 この場合、後述の `--postgres-image` は `momo-db-rehearsal:18` を指定する。
 
+実 DB の major version・locale、dump / restore の所要時間、必要容量は事前に読み取り・実行して確認する。ローカル container は PGDATA 2 GiB・memory 3 GiB 固定で、baseline / migration / reference / smoke / recovery の複数 DB と WAL・一時領域が同じ上限を使う。`pg_database_size` だけでは収まる保証にならない。実コピーで上限や棚卸し・dump の statement timeout（各 statement は 5 分、dump 全体は 20 分）に当たれば、容量・時間の設計を変更して**新しい候補で最初から通す**。停止中に上限を緩めて初成功を狙わない。
+
 source は明示した direct 接続だけを使い、`.env.local` を自動読込みしない。接続 URL を shell 引数・履歴へ書かず、承認済みの secret 注入で `MOMO_REHEARSAL_SOURCE_URL` に渡す。以下は環境変数の値を表示せず、repository 外の private directory に鍵と接続設定を作る例である。
+
+`migration:source-preflight` は承認済み `MOMO_REHEARSAL_PROJECT_ID` / `MOMO_REHEARSAL_BRANCH_ID` / `MOMO_REHEARSAL_ENDPOINT_ID` / `MOMO_DB_EXPECTED_DIRECT_HOST` と `neondb` を照合する。Neon endpoint は `NEON_API_KEY` による GET、未指定なら認証済み Neon CLI の GET で DB 観測前後に再照合する。実接続の DB・read-only・primary・厳密な `0000`–`0072` 履歴も確認する。`prepare` と `snapshot` / `inspect` も同じ承認情報を要求し、旧形式の URL だけの設定は拒否する。
 
 ```sh
 install -d -m 700 /private/tmp/momo-rehearsal-secrets
 node --input-type=module <<'JS'
-import { createKey, loadKey, writeJson } from './scripts/migration/files.mjs';
-const base = '/private/tmp/momo-rehearsal-secrets';
-if (!process.env.MOMO_REHEARSAL_SOURCE_URL) throw new Error('Source configuration is required.');
-await createKey(`${base}/source.key`);
-await writeJson(`${base}/source.json.enc`, { sourceUrl: process.env.MOMO_REHEARSAL_SOURCE_URL }, await loadKey(`${base}/source.key`));
+import { createKey } from './scripts/migration/files.mjs';
+await createKey('/private/tmp/momo-rehearsal-secrets/source.key');
 JS
+# 上記の承認済み識別子と MOMO_REHEARSAL_SOURCE_URL を安全に環境へ注入してから実行する。
+pnpm migration:source-preflight \
+  --key-file /private/tmp/momo-rehearsal-secrets/source.key \
+  --output /private/tmp/momo-rehearsal-secrets/source.json.enc
 ```
 
 鍵は 0600、directory は 0700 とする。共有・commit しない。接続設定、manifest、棚卸し、dump は AES-256-GCM で暗号化する。鍵と暗号化ファイルの両方を紛失すると復元できないため、必要な保持期間は管理された private storage に保管する。CLI の `cleanup` はこれらを消さない。
 
 SQL 棚卸しは検証付き TLS と必要な SCRAM channel binding を使う。dump は同じ接続設定を libpq に安全に注入する。`channel_binding=require` の fallback、未知の URL parameter、pooler URL は拒否する。URL parameter は `sslmode` / `channel_binding` のみ許可する。
 
-## 実行
+## DB 部分の実行
 
-`prepare` は存在しない run directory を指定する。以後は同じ鍵・manifest を明示する。
+`prepare` は存在しない run directory を指定する。今回の tail は **`--profile canonical-identities-retired-slots-v1` を必ず指定**する。省略時の `preserve-v1` は pending migration を拒否する。source の取得中は別 migration / DDL を禁止する。以後は同じ鍵・manifest を明示する。以下は DB 部分のコマンドであり、consumer gate は後述の別作業である。
 
 ```sh
 pnpm migration:rehearsal prepare \
   --run-dir /private/tmp/momo-rehearsal-run \
   --key-file /private/tmp/momo-rehearsal-secrets/source.key \
   --source-config /private/tmp/momo-rehearsal-secrets/source.json.enc \
-  --postgres-image postgres:18-alpine
+  --postgres-image momo-db-rehearsal:18 \
+  --profile canonical-identities-retired-slots-v1
 
 pnpm migration:rehearsal snapshot --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
 pnpm migration:rehearsal restore --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
 pnpm migration:rehearsal rehearse --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
 pnpm migration:rehearsal recover-rehearsal --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
 pnpm migration:rehearsal status --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
-pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
 ```
 
-`inspect` は dump を作らず source の棚卸しを保存する任意の入口、`verify` は移行 copy の読取り比較である。未知の ledger、row-level security による不可視行、schema / 保存値差分は成功扱いにしない。dump と移行前監査は同じ exported snapshot を使い、source 接続は読取り専用とする。source 上で migration や修復は行わない。
+`status` で少なくとも `sourceSnapshot`、`restore`、`freshReference`、`migratorFirstRun`、`migratorNoop`、`migrationSchema`、`savedRows`、`canonicalIdentityProjection`、`workerSlotRetirement`、`databaseRecovery` が真であることと、`incomplete` を確認する。`incomplete` は DB コマンドだけでは解消しない。途中失敗後の既存 migration copy は再適用せず、`verify` で読み取り分類する。二回目の migrator 実行証拠を失った場合は fresh run とする。`inspect` は dump を作らず source の棚卸しを保存する任意の入口。未知の ledger、row-level security による不可視行、schema / 保存値差分は成功扱いにしない。dump と移行前監査は同じ exported snapshot を使い、source 接続は読取り専用とする。source 上で migration や修復は行わない。
+
+業務 gate と証拠の保全が終わるまで `cleanup` しない。`cleanup` は所有確認した一時 DB / network を消すが、暗号化 archive・manifest・鍵は消さない。保持・削除の担当と期限を別に決める。
+
+```sh
+pnpm migration:rehearsal cleanup --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc --key-file /private/tmp/momo-rehearsal-secrets/source.key
+```
 
 候補を更新した初期リハーサルでは、取得済みの整合 snapshot を再利用できる。新しい run directory と候補 commit を使い、`--source-config` の代わりに `--snapshot-manifest <previous-run>/manifest.json.enc` を `prepare` に渡す。同じ鍵で元 manifest / 監査を認証し、archive digest と新候補への ledger prefix を検証して暗号化 copy を作る。この経路は source DB や接続設定を開かない。以降は `snapshot` を省いて `restore` から実行する。旧 run の consumer・migration・復旧結果は引き継がず、取得時刻も更新しない。稼働中に取得した古い snapshot を、停止直後の最終 backup として使うことはできない。
 
@@ -72,18 +85,31 @@ slot の廃止まで含む `0073`〜`0095` には `--profile canonical-identitie
 
 実行中は private run lock を保持する。異常終了した lock は TTL で自動解除しない。残存 process と所有資源を確認してから管理者が解除する。migration 結果が不明なときは ledger を読み取り確認し、盲目的に再適用しない。
 
-## アプリケーション権限の再現
+## アプリケーション権限の再現と接続 gate
 
-consumer の業務 gate 前に、実行中の API / worker / Summit 全 instance の DB login role と boot を確認し、接続先の source schema / ledger とともに権限を監査する。接続 URL 全体は採取せず、process 内で role 名だけを取り出す。instance の設定・boot が監査前後で一致しなければ取り直す。`captureApplicationRoleAudit` はその観測一覧を受け取り、read-only transaction 内で schema、ledger、role 属性・membership、DB / schema / table / column / sequence / function の実効権限を収集する。返した監査は同じ run の鍵で暗号化した `source-role-audit.json.enc` として private に保存する。通常の dump だけではこの観測の代わりにならない。
+consumer の業務 gate 前に、実行中の API / worker / Summit 全 instance の DB login role と boot を確認し、接続先の source schema / ledger とともに権限を監査する。接続 URL 全体は採取せず、process 内で role 名だけを取り出す。instance の設定・boot が監査前後で一致しなければ取り直す。`captureApplicationRoleAudit` はその観測一覧を受け取り、read-only transaction 内で schema、ledger、role 属性・membership、DB / schema / table / column / sequence / function の実効権限を収集する。返した監査は同じ run の鍵で暗号化した `source-role-audit.json.enc` として private に保存する。通常の dump だけではこの観測の代わりにならない。`capture-role-audit.mjs` が暗号化済みの3観測、source 設定、source 棚卸しを受け取り、鮮度・image・boot・接続先・ledger を検査して監査を保存する。新 image の自己報告は5分以内とする。旧 image は30分以内の同一 instance/config、実プロセスの設定と DB socket、ログを関連付け、helper を本人の自己報告と扱わない。PgBouncer の共有 backend はアプリ別に一意帰属できないことを記録する。失敗・期限切れ・instance変更時は観測から取り直す。default privilege も監査に含める。
 
-現在の mapper は、全 consumer と migration が同じ非 superuser の application owner を使い、`public` / `drizzle` の全 table、sequence、function を所有する契約を対象とする。source の schema / ledger digest、全 object と column の権限を照合し、RLS、SECURITY DEFINER、複数 role、部分権限、未知の schema / type、role 設定があれば停止する。その場合は対象に合う mapping を別途レビューする。
+primary 接続用 mapper は、全 consumer の主接続と migration が同じ非 superuser の application owner を使い、`public` / `drizzle` の全 table、sequence、function を所有する契約を対象とする。source の schema / ledger digest、全 object と column の権限を照合し、RLS、SECURITY DEFINER、複数 role、部分権限、未知の schema / type、role 設定があれば停止する。その場合は対象に合う mapping を別途レビューする。
 
 ```sh
+node scripts/migration/capture-role-audit.mjs \
+  --key-file /private/tmp/momo-rehearsal-secrets/source.key \
+  --source-config /private/tmp/momo-rehearsal-secrets/source.json.enc \
+  --source-report /private/tmp/momo-rehearsal-run/source.json.enc \
+  --consumer-reports /private/tmp/momo-rehearsal-secrets/consumer-observations.json.enc \
+  --output /private/tmp/momo-rehearsal-secrets/source-role-audit.json.enc
+
 pnpm migration:rehearsal application-role \
   --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc \
   --key-file /private/tmp/momo-rehearsal-secrets/source.key \
   --role-audit /private/tmp/momo-rehearsal-secrets/source-role-audit.json.enc \
   --copy smoke
+
+pnpm migration:rehearsal application-role \
+  --manifest /private/tmp/momo-rehearsal-run/manifest.json.enc \
+  --key-file /private/tmp/momo-rehearsal-secrets/source.key \
+  --role-audit /private/tmp/momo-rehearsal-secrets/source-role-audit.json.enc \
+  --copy recovery
 ```
 
 `smoke` は検証済み migration copy から専用 DB を作り、`recovery` は検証済みの復旧 copy を使う。保存行と sequence を既存の検証証拠と照合してから、run 固有 role へ DB と object の owner を対応付ける。role 属性は監査値を再現し、`public` の owner は source と同じ `pg_database_owner` とする。実際の application login で実効権限・全保存値・sequence の不変性を読み戻し、暗号化した `application-role-<copy>.json.enc` に結果を残す。baseline / migration copy は対象にできない。
@@ -91,6 +117,10 @@ pnpm migration:rehearsal application-role \
 停止制御に結び付いた旧 `finalFreeze` manifest はこの CLI の対象外であり、`FINAL_REHEARSAL_RETIRED` で拒否する。汎用リハーサルには新しい run を使う。
 
 この証拠は application DB 内の実効権限の再現を表す。provider の管理権限や cluster membership は元監査に記録し、ローカルで再現したとは扱わない。`applicationRoleMapping` が true でも業務処理は未実行なので、`application-role-behavior` は残す。consumer の読み書き、function / trigger、画像・通知先を含む別 gate の実行結果が必要である。
+
+127.0.0.1 relay は各 DB command の終了時に閉じる。`consumer-runner.mjs` の `withMaintenanceConsumer` は所有する隔離 network 上に固定 image を置き、callback の間は同じ DB 接続先を使える。`consumer-probe.mjs` は暗号化 manifest・owner proof・config を照合し、実 process の DB identity・role・ledger・image・boot と、起動前後の全保存値・sequence の不変を検査する。保守 mode の起動だけを扱い、通常業務と旧 image の復旧 smoke は P4 の別 gate とする。SQL が通ったこと、DB が復元できたこと、または `applicationRoleMapping` だけで「consumer smoke」「旧 consumer による復旧」を合格にしない。
+
+追加の Worker 読取・待受け接続は primary owner で代用しない。`application-reader.mjs` は別の role 監査を基に、read-only default、public 全 table の SELECT、drizzle 不可視、書込み不可、既存 sequence 権限なしと、owner が作る新規 public table への SELECT default privilege を限定的に検証する。`mapApplicationReader` は owner mapping 済みの所有 copy で実効権限を再現し、実 login の全 public table 読取り、`processing_jobs` / `ocr_submissions` の LISTEN、禁止操作の拒否、全保存値不変を確認する。group membership は実効 grant に集約し、SET ROLE や provider 管理権限を再現したとは扱わない。未知の role/default grant、追加 sequence、RLS 等は拒否する。この module の proof と専用 local role を、P4 の分析・待受け接続へ渡す。primary の保守 probe だけで追加接続を合格にしない。
 
 ## 証拠の範囲
 
@@ -101,8 +131,11 @@ pnpm migration:rehearsal application-role \
 - locale 名だけでなく provider・rules・記録済み / 実際の collation version を比較する。source の builtin / libc 設定で初期化し、復元前に一致を確認する。version drift、未対応の ICU 等は停止し、名前の正規化だけで同一とみなさない。
 - constraint は元の定義を private inventory に保持し、比較には PostgreSQL 自身の deparser で不要な括弧を抑えた表現を使う。dump / restore に伴う同じ AND 条件の括弧差だけで失敗させず、AND / OR の優先順位や条件変更は検出する。この比較表現を復元用 SQL としては使わない。
 - 稼働中の snapshot では sequence は MVCC に従わない。sequence の元 DB と同時点の保全や停止継続は証明しない。二つの復元 copy 間では identity sequence を含め一致を検査する。
+- 停止直後の source sequence を復元 copy と直接照合する機能、および backup 後から本番 SQL 直前までの停止継続・全保存値の再照合はこの CLI にない。最終 backup と CI 適用を結ぶ別の guard と証拠が必要である。
 - 既定の `preserve-v1` comparator は schema・アプリ保存値の変更を一切許容せず、pending tail がある場合は適用前に停止する。公開番号・canonical・slot retirement の各 profile の許容差分は、それぞれ上記の固定 tail と列別契約に限定する。候補を拡張する場合は期待 schema・列別 mapping と専用 comparator を更新し、その候補で再リハーサルする。
 - 新規の移行 copy では正規 migrator を再実行し、二回目が schema・ledger・保存値・sequence を変えないことまで検証する。途中終了後の既存 copy は読取り比較で分類し、再適用しない。二回目実行の証拠が残っていなければ未確認として fresh run を求める。
 - consumer の smoke、別 DB への実接続切替、画像本体、停止直後の最終 snapshot、本番承認・適用・再開は別の証拠が必要である。
 
-手順と受入条件の全体は [統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)、正規 migration の規範は [開発手順](development.md) に従う。
+停止後の時間短縮に使う「最終 backup を実際に復元して読み、成功済み rehearsal の復元 baseline と全保存値・schema・ledger・sequence・locale を、role / 接続先 / 設定は事前の source 監査・固定設定と比べる。一致すればその移行証拠を再利用し、保存行 / sequence だけが変われば最終 copy で移行を一回実行して全件比較する」という分岐は、**この CLI の現行 command では実行できない**。最終 source の sequence 照合、停止継続、実際の consumer / 復旧 image 接続、適用前 guard まで含む停止専用入口を実装・実コピーで検証するまでは、[現行計画](plans/2026-10-20-production-cutover-execution.md)の短い経路を利用可能なものとして扱わない。
+
+今回の手順と宣言条件は[現行の実行計画](plans/2026-10-20-production-cutover-execution.md)、正規 migration の規範は[開発手順](development.md)に従う。[旧統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)は設計背景であり、撤去された停止制御や未実装の consumer gate を実行済みとみなさない。

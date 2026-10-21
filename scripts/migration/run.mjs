@@ -6,7 +6,7 @@ import { stat } from 'node:fs/promises';
 import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { inspectSchema, inspectIdentifierValues } from './inventory.mjs';
 import { connect, databaseLocation, inspectServer, inspectConnection, fingerprint, compareFingerprints, compareDatabaseLocale, historyState } from './database.mjs';
-import { command, start } from './process.mjs';
+import { command } from './process.mjs';
 import { importSnapshot } from './snapshot.mjs';
 import { createMigrationReferences } from './reference.mjs';
 import { schemaStructure } from './schema.mjs';
@@ -18,9 +18,11 @@ import { CANONICAL_IDENTITY_PROFILE, WORKER_SLOT_RETIREMENT_PROFILE, isCanonical
   createCanonicalIdentityProfile, inspectCanonicalSource, inspectCanonicalIdentityTransition,
   compareCanonicalIdentityTransition } from './canonical-identities.mjs';
 import { applicationOwnerPlan, mapApplicationOwner } from './application-role.mjs';
+import { sourceApproval, verifySourceEndpoint } from './source-preflight.mjs';
+import { encryptedSourceDump } from './source-dump.mjs';
 import { resolvePostgresImage, startLocal, assertOwned, restoreArchive, createDatabase, databaseState, localUrl, cleanupLocal, withLocalConnection } from './local.mjs';
 import { RehearsalError, requireCondition, createWorkspace, loadKey, digest, fileDigest, privateDirectory,
-  writeJson, readJson, encryptStream, withRunLock } from './files.mjs';
+  writeJson, readJson, withRunLock } from './files.mjs';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const isolation = 'isolation level repeatable read read only';
@@ -61,6 +63,10 @@ async function sourceUrl(manifest, key) {
   const value = await readJson(manifest.source.configuration, key);
   const location = databaseLocation(value.sourceUrl);
   requireCondition(location.identity === manifest.source.identity, 'SOURCE_IDENTITY_CHANGED');
+  const approved = sourceApproval();
+  requireCondition(value.preflight?.formatVersion === 1 && value.preflight.identity === location.identity &&
+    digest(value.preflight.approved) === digest(approved), 'APPROVED_SOURCE_PREFLIGHT_REQUIRED');
+  await verifySourceEndpoint(value.sourceUrl, approved);
   return value.sourceUrl;
 }
 
@@ -136,7 +142,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
     await assertOwned(manifest);
     await beforeMutation();
     databaseLocation(target, { local: true });
-    await command('pnpm', ['db:migrate:ci'], { cwd: repository, env: { ...process.env, DIRECT_URL: target }, failureCode: 'LOCAL_MIGRATION_FAILED', signal });
+    await command('pnpm', ['exec', 'drizzle-kit', 'migrate'], { cwd: repository, env: { ...process.env, DIRECT_URL: target }, failureCode: 'LOCAL_MIGRATION_FAILED', signal });
   };
   const migrationProfile = async before => {
     const selected = manifest.profile ?? 'preserve-v1';
@@ -201,6 +207,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
 
   if (action === 'inspect') {
     const inspection = await withDatabase(await sourceUrl(manifest, key), sql => audit(sql, { identifiers: true, sequences: false }));
+    await sourceUrl(manifest, key);
     await writeReport('inspection', inspection);
     manifest.checks.sourceInventory = true;
     manifest.inspection = { digest: digest(inspection), blockers: inspection.identifiers.blockers.length,
@@ -225,17 +232,8 @@ export async function runAction(action, manifest, directory, key, save, { signal
         // remains provisional until the archive and both ledger checks pass.
         manifest.sourceAuditDigest = await writeReport('source', baseline);
         await save();
-        const configuration = databaseLocation(url).configuration;
-        const environment = { ...process.env, ...configuration,
-          PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=300000 -c lock_timeout=10000', PGAPPNAME: 'momo-db-rehearsal-dump' };
-        const names = [...Object.keys(configuration), 'PGOPTIONS', 'PGAPPNAME'];
-        const args = ['run', '--rm', '--interactive', ...names.flatMap(name => ['--env', name]),
-          manifest.postgres.id, 'pg_dump', '--format=custom', '--no-password', `--snapshot=${snapshot}`];
         await beforeMutation();
-        const { child, completed } = start('docker', args, { env: environment, failureCode: 'SOURCE_DUMP_FAILED' });
-        child.stdin.end();
-        try { await Promise.all([encryptStream(child.stdout, archive, key), completed]); }
-        catch (error) { child.kill('SIGKILL'); await completed.catch(() => {}); throw error; }
+        await encryptedSourceDump({ url, image: manifest.postgres.id, snapshot, archive, key, signal });
         await beforeMutation();
         manifest.snapshot = { mode: 'online-consistent-snapshot', capturedAt: new Date().toISOString(),
           archiveDigest: await fileDigest(archive), auditDigest: digest(baseline),
@@ -244,6 +242,7 @@ export async function runAction(action, manifest, directory, key, save, { signal
       });
       const after = await inspectConnection(sql, repository);
       requireCondition(after.ledgerDigest === before.ledgerDigest, 'SOURCE_LEDGER_CHANGED');
+      await sourceUrl(manifest, key);
       manifest.state = 'snapshotted';
       manifest.checks.sourceSnapshot = true;
     } finally { await sql.end().catch(() => {}); }
@@ -372,6 +371,7 @@ export async function main(args) {
       requireCondition(isAbsolute(options['source-config'] ?? ''), 'EXPLICIT_SOURCE_CONFIGURATION_REQUIRED');
       source = { configuration: options['source-config'],
         identity: databaseLocation((await readJson(options['source-config'], key)).sourceUrl).identity };
+      await sourceUrl({ source }, key);
     }
     const postgres = await resolvePostgresImage(options['postgres-image'] ?? 'postgres:18-alpine');
     requireCondition(digest(await candidate()) === digest(fixed), 'CANDIDATE_CHANGED');
