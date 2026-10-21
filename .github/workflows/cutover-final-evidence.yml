@@ -1,0 +1,120 @@
+name: Cutover final evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact master SHA with successful CI
+        required: true
+      mode:
+        description: Rehearsal reads production then freezes only an isolated copy
+        type: choice
+        options: [rehearsal, production]
+        default: rehearsal
+      summit_sha:
+        description: Fixed Summit master commit with published image
+        required: true
+      result_sha:
+        description: Fixed momo-result master commit with published images
+        required: true
+      recovery_reserve_minutes:
+        description: Reserved recovery time within the approved 120 minute total
+        required: true
+        default: '30'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neon-migrate
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    environment: CI Actions
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      NEON_API_KEY: ${{ secrets.CUTOVER_NEON_API_KEY }}
+      FLY_API_TOKEN: ${{ secrets.CUTOVER_FLY_READ_TOKEN }}
+      MOMO_REHEARSAL_PROJECT_ID: ${{ vars.MOMO_REHEARSAL_PROJECT_ID }}
+      MOMO_REHEARSAL_BRANCH_ID: ${{ vars.MOMO_REHEARSAL_BRANCH_ID }}
+      MOMO_REHEARSAL_ENDPOINT_ID: ${{ vars.MOMO_REHEARSAL_ENDPOINT_ID }}
+      MOMO_DB_EXPECTED_DIRECT_HOST: ${{ vars.MOMO_DB_EXPECTED_DIRECT_HOST }}
+      CUTOVER_WRITER_INVENTORY_JSON: ${{ vars.CUTOVER_WRITER_INVENTORY_JSON }}
+      CANDIDATE: ${{ inputs.candidate_sha }}
+      SUMMIT_REF: ${{ inputs.summit_sha }}
+      RESULT_REF: ${{ inputs.result_sha }}
+      MODE: ${{ inputs.mode }}
+      RECOVERY_RESERVE: ${{ inputs.recovery_reserve_minutes }}
+    steps:
+      - name: Require the fixed successful master candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/master
+          test "$CANDIDATE" = "$GITHUB_SHA"
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SUMMIT_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RESULT_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RECOVERY_RESERVE" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$CANDIDATE&event=push&status=success" > "$RUNNER_TEMP/quality.json"
+          jq -e --arg sha "$CANDIDATE" \
+            'any(.workflow_runs[]; .head_sha == $sha and .head_branch == "master" and .conclusion == "success")' "$RUNNER_TEMP/quality.json"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare PostgreSQL 18 dump and isolated restore client
+        run: docker build --tag momo-final-postgres:18 - < scripts/migration/postgres.Dockerfile
+      - name: Prepare private evidence key
+        env:
+          KEY_BASE64: ${{ secrets.CUTOVER_EVIDENCE_KEY_BASE64 }}
+        run: |
+          umask 077
+          python3 - <<'PY'
+          import base64, os, pathlib
+          key = base64.b64decode(os.environ['KEY_BASE64'], validate=True)
+          assert len(key) == 32
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'cutover-evidence.key'
+          path.write_bytes(key)
+          path.chmod(0o600)
+          PY
+      - name: Produce measured evidence; production mode cannot stop or write production
+        run: |
+          node scripts/migration/final-run.mjs \
+            --mode "$MODE" --run-dir "$RUNNER_TEMP/cutover-final" \
+            --key-file "$RUNNER_TEMP/cutover-evidence.key" \
+            --postgres-image momo-final-postgres:18 \
+            --summit-ref "$SUMMIT_REF" --result-ref "$RESULT_REF" \
+            --reserve-minutes "$RECOVERY_RESERVE"
+      - name: Preserve encrypted final handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutover-final-${{ inputs.candidate_sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cutover-final/final-evidence.json.enc
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Preserve encrypted backup, comparison reports and failure progress
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutover-reports-${{ inputs.candidate_sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cutover-final/final/*.enc
+            ${{ runner.temp }}/cutover-final/online-input/*.enc
+            ${{ runner.temp }}/cutover-final/progress.json.enc
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove private source configuration and key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/cutover-evidence.key" "$RUNNER_TEMP/cutover-final/source-config.json.enc"

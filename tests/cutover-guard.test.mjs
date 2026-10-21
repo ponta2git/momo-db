@@ -1,33 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { guardedApply, configurationDigest } from '../scripts/migration/cutover-guard.mjs';
-
-const candidate = 'a'.repeat(40);
-function fixture() {
-  const time = Date.now();
-  const source = {
-    connection: {
-      ledger: Array.from({ length: 73 }, (_, index) => ({ hash: String(index), created_at: String(index) })),
-      server: { encoding: 'UTF8', collation: 'C.UTF-8', ctype: 'C.UTF-8', localeProvider: 'b',
-        locale: 'C.UTF-8', icuRules: null, collationVersion: '1', actualCollationVersion: '1' },
-    },
-    role: 'owner', rolesDigest: 'b'.repeat(64), locationIdentity: 'c'.repeat(64), schema: { tables: [] },
-    rows: { algorithm: 'sha256-row-multiset-v2', tables: [{ name: 'fixture', rows: '1', digest: 'd'.repeat(64) }],
-      sequences: [{ name: 'fixture_id_seq', last_value: '1', is_called: true }] },
-  };
-  const actual = ['api', 'worker', 'summit'].map(id => ({ id, instance_id: `instance-${id}`,
-    state: 'stopped', config: { restart: { policy: 'no' }, services: [], env: { FIXTURE: '1' } } }));
-  const evidence = { formatVersion: 1, kind: 'final-cutover-evidence', candidate,
-    profile: 'canonical-identities-retired-slots-v1', refs: { db: candidate, summit: candidate, result: candidate },
-    frozenAt: new Date(time - 3000).toISOString(), validatedAt: new Date(time - 1000).toISOString(),
-    expiresAt: new Date(time + 60000).toISOString(),
-    backup: { capturedAt: new Date(time - 2000).toISOString(), restoredAndRead: true,
-      archiveDigest: 'd'.repeat(64), restoredReportDigest: 'e'.repeat(64) },
-    finalData: { passed: true, path: 'full-rehearsal', reportDigest: 'f'.repeat(64) },
-    source, machines: actual.map(item => ({ consumer: item.id, app: `fixture-${item.id}`, id: item.id,
-      instanceId: item.instance_id, configDigest: configurationDigest(item.config) })) };
-  return { evidence, actual };
-}
+import { guardedApply } from '../scripts/migration/cutover-guard.mjs';
+import { candidate, fixture } from './cutover-fixture.mjs';
 
 test('SQL follows two live stopped-Machine observations and complete source comparison', async () => {
   const { evidence, actual } = fixture();
@@ -63,6 +37,9 @@ test('changed row, sequence, schema, role, target/partial ledger, or host preven
 test('restart, config drift, extra Machine or expired/incomplete backup fails closed', async () => {
   for (const change of [
     ({ actual }) => { actual[0].state = 'started'; },
+    ({ actual }) => { actual[0].eventsDigest = 'f'.repeat(64); },
+    ({ evidence }) => { evidence.kind = 'cutover-rehearsal-evidence'; },
+    ({ evidence }) => { evidence.verification.changed = true; },
     ({ actual }) => { actual[0].instance_id = 'new-boot'; },
     ({ actual }) => { actual[0].config.restart.policy = 'always'; },
     ({ actual }) => { actual.push(actual[0]); },

@@ -139,3 +139,18 @@ pnpm migration:rehearsal application-role \
 停止後の時間短縮に使う「最終 backup を実際に復元して読み、成功済み rehearsal の復元 baseline と全保存値・schema・ledger・sequence・locale を、role / 接続先 / 設定は事前の source 監査・固定設定と比べる。一致すればその移行証拠を再利用し、保存行 / sequence だけが変われば最終 copy で移行を一回実行して全件比較する」という分岐は、**この CLI の現行 command では実行できない**。最終 source の sequence 照合、停止継続、実際の consumer / 復旧 image 接続、適用前 guard まで含む停止専用入口を実装・実コピーで検証するまでは、[現行計画](plans/2026-10-20-production-cutover-execution.md)の短い経路を利用可能なものとして扱わない。
 
 今回の手順と宣言条件は[現行の実行計画](plans/2026-10-20-production-cutover-execution.md)、正規 migration の規範は[開発手順](development.md)に従う。[旧統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)は設計背景であり、撤去された停止制御や未実装の consumer gate を実行済みとみなさない。
+
+## 全工程による最終証拠と読み取り専用分類
+
+`cutover-final-evidence.yml` は、成功済み master CI と同一 SHA、固定した Summit / momo-result の ref、復旧余裕を入力にする。鍵は既存の `CUTOVER_EVIDENCE_KEY_BASE64`、source と provider の接続は `CI Actions` の Secret / Variable を使う。実行ログへ値を出さず、backup・source・比較 report・最終証拠を暗号化 artifact として保存する。鍵の private 保管と artifact の保持期間を別途確保する。
+
+- `rehearsal` は本番を読み取り専用で snapshot し、その復元 copy を停止中 source に見立てる。別の模擬最終 backup を実際に取得し、さらに別 copy で restore / reference / migration / no-op / recovery を通す。実 copy の行・sequence の変更、模擬 writer の再起動で guard が閉じることと、baseline / target の読み取り分類を確認する。模擬 writer は実 consumer の業務証拠ではない。出力の `kind: cutover-rehearsal-evidence` は本番 SQL が拒否する。
+- `production` は停止操作を行わず、承認済み `CUTOVER_WRITER_INVENTORY_JSON` の3 Machine が既に停止している場合だけ進む。restart / autostart / schedule、instance、設定とイベント履歴を固定し、全 client の drain、source の全保存値・schema・role・ledger・sequence・locale を読み取る。backup の後と全工程の後にも同じ基準と照合し、復元 baseline を停止中 source の sequence まで比較する。設定した復旧余裕を残せない場合、証拠を発行しない。
+
+最終証拠は manifest の `checks` だけから作らない。archive と各暗号化 report の digest、正確な candidate / profile、canonical 全件比較、no-op と recovery を再検証し、適用後比較に必要な baseline / profile / 変換証拠も同じ暗号化証拠へ含める。producer run / attempt、取得・検証・失効時刻を結び付け、SQL 入口は成功した producer の同一 artifact と照合する。全工程の成功も P4 の実 consumer 業務・旧版復旧を代替しない。
+
+`cutover-apply.yml` の `operation: apply` は従来の本番承認を通した後だけ正規 migrator を実行する。直後に読み取り専用の全件比較を行う。SQL が失敗した場合も再実行せず分類する。結果を取り直す場合は同 workflow の `operation: classify` を使う。この選択では SQL の承認 job と migrator を実行せず、停止中の実 DB を `baseline-unchanged`、`target-preserved`、`partial-or-unknown`、`comparison-failed` に分類する。失効済み証拠は読み取り分類だけに使え、SQL の再承認には新しい有効な証拠が必要である。
+
+producer の成功した模擬 run と P4 の業務・復旧結果を同じ候補へ結び付けるまで、これらの入口の存在だけで本番の実行条件を満たしたとは扱わない。模擬最終 backup の取得時刻を、本番停止後の取得時刻へ付け替えない。
+
+ローカルで同じ模擬経路を確認するときは `final-run.mjs --mode rehearsal` に `--snapshot-manifest` を渡し、既存 CLI と同じ認証済み snapshot の import を使える。この場合は source DB / credential を開かず、元の取得時刻を保持する。`production` mode はこの option を拒否し、必ず停止中 source から新しい backup を取得する。
