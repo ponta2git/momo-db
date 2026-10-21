@@ -1,6 +1,6 @@
 # `0073`–`0095` 本番停止切替の実行計画
 
-更新日: 2026-10-20。対象: momo-db / momo-result / Summit。
+更新日: 2026-10-21。対象: momo-db / momo-result / Summit。
 
 この文書は、メンテナンスの宣言条件、停止中の進行条件、中断時の行き先を定める。実際の担当者・操作時刻・実コマンドは各 consumer の運用 runbook に記録する。DB 変更と承認の規範は [development.md](../development.md) に従い、[2026-10-17 の設計計画](./2026-10-17-db-refactor-and-migration-plan.md)に残る撤去済み P0 制御を実行指示として使わない。
 
@@ -8,14 +8,14 @@
 
 ## 現在の位置と証拠の扱い
 
-| 項目 | 2026-10-20 時点の事実・残る確認 |
+| 項目 | 2026-10-21 時点の到達点・残る確認 |
 | --- | --- |
-| 本番 DB | Neon production の ledger は `0000`–`0072` の73件で、ローカル SQL の hash・timestamp・順序と一致する。`0073`–`0095` は未適用。ledger の一致だけでは schema drift や復旧可能性を証明しない。 |
-| writer | 常時稼働として把握したのは momo-result API、analysis Worker、Summit の3アプリ。pooler、外部 batch、scheduler、人手・CI の本番変更経路も停止対象として宣言前に網羅し、停止後に実証する。 |
-| 旧版と backup | 旧 image・出所・対応 ref は非公開の運用棚卸しに記録した。停止直後の復元可能な backup、および旧 DB と旧 consumer の復元 copy 上の組合せ検証は未実施。 |
-| DB 入口 | 接続 guard はローカルテストと現在の Neon ledger 照合に成功したが、GitHub Secret `DIRECT_URL` を用いた新 guard の CI 実行は未実施。現行 CI は `drizzle/` 差分のない master push で本番 migration job を起動しない。doc-only push や過去 run の rerun で pending tail を適用しない。 |
-| リハーサル | [`migration:rehearsal`](../migration-rehearsal.md) は DB copy の移行・比較と旧 DB の復元までを扱う。実 consumer の接続・業務操作、旧版への切替、実環境 role 監査の作成、停止継続を実行する一式はない。`status.checks` が真でも `incomplete` を残す。 |
-| 配備 | 現行 momo-result `deploy` は approval 後に image を push し、Runtime / Worker を明示起動して postdeploy smoke と分析保守まで進む。停止中に承認すると writer が再開し得る。停止を保つ専用の公開・配備・確認・再開経路は未実装。 |
+| 本番 DB | 10月20日の読み取り専用観測で Neon production の ledger は `0000`–`0072` の73件で、ローカル SQL の hash・timestamp・順序と一致した。今回 `0073`–`0095` の適用は行っていない。宣言前・SQL 直前には接続先と状態を取り直す。 |
+| writer と role | API、analysis Worker、Summit の実プロセス設定・DB socket・Machine / boot を関連付け、primary owner と Worker の追加 reader を監査した。共有 PgBouncer backend のアプリ別一意帰属や、全 writer の停止を証明したものではない。外部 batch、scheduler、人手・CI の変更経路は引き続き網羅する。 |
+| 旧版と backup | 3アプリの実際の旧 digest を隔離 Fly で停止状態へ戻す試験は成功した。稼働中 source の暗号化 dump と隔離復元・比較も成功した。停止直後の最終 backup、および旧 DB と旧 consumer の通常業務を含む復旧確認は未実施。 |
+| DB 入口 | GitHub Secret `DIRECT_URL` を使う読み取り専用 CI preflight は成功した。固定候補・停止 Machine・source 全件を照合する保護付き SQL 入口と通常 CI からの pending tail 適用拒否を PR に実装済み。P3 の最終証拠 producer は未実装であり、本番 SQL 入口はまだ実行条件を満たさない。 |
+| リハーサル | role 監査の保存、owner / reader mapping、隔離した実 image の maintenance 接続・自己報告、dump 中断時の後始末を実装・検証した。通常業務、旧版の業務起動、最終 backup と停止継続を結ぶ gate は P3 / P4 に残る。`status.checks` と `incomplete` は分けて読む。 |
+| 配備 | 公開専用 job、component 別の停止・配備・read-only 確認・再開、通常経路との排他を PR に実装し、隔離 Fly で検証した。3 PR は未 merge で、本番用固定候補の registry 公開も未実施。稼働中の本番アプリの停止・設定変更・配備は行っていない。 |
 
 合格の単位は、**同じ固定候補に対する独立して成功した gate** である。失敗 run の途中までの結果を継ぎ足して合格にしない。暗号化 DB report の `checks: true` は DB gate の結果であり、consumer と復旧の合格ではない。合格記録には次を結び付け、人が report と実行結果を読む。
 
@@ -28,14 +28,37 @@
 ## 工程1：実施済みの基盤修正・調査
 
 1. momo-result の現行 private runbook を[公開 Git 規約](https://github.com/ponta2git/momo-result/blob/develop/docs/dev-rule.md)と一致させた。release branch の独立 patch / revert、対象 gate、候補の再固定、後日の develop PR を認める。private runbook は git 管理外のローカル資料である。
-2. momo-db の通常 preflight に、承認済み direct hostname と `neondb` の URL・実接続 DB 照合を追加した。期待 hostname は GitHub `CI Actions` の非 secret Variable に、Neon の現行 production read-write endpoint から登録済み。今回の切替専用 guard は、同じ接続先の ledger が厳密に `0000`–`0072` と一致する場合だけ通す。いずれも読み取り専用で、URL 実値を出さない。CI での確認は工程2に残る。
+2. momo-db の通常 preflight に、承認済み direct hostname と `neondb` の URL・実接続 DB 照合を追加した。期待 hostname は GitHub `CI Actions` の非 secret Variable に、Neon の現行 production read-write endpoint から登録済み。今回の切替専用 guard は、同じ接続先の ledger が厳密に `0000`–`0072` と一致する場合だけ通す。いずれも読み取り専用で、URL 実値を出さない。工程2で GitHub Secret を使う CI 実行も成功した。
 3. 3アプリの現行 Machine / image、GitHub の本番変更経路、旧版候補を棚卸しした。観測できた範囲と不明点を分け、停止後の実証項目を定めた。
+
+## P1・P2 の実施結果と計画への反映
+
+10月20日から21日にかけて、P1・P2 の実装、短い隔離試験、下記の実装 ref の PR CI が成功した。**P1 の本番用候補公開は未実施であり、P1 全体や切替準備の完了とは扱わない。** merge と公開の承認を得た後に P4 の候補固定とつなぐ。文書追記や merge 後の commit は下表と異なるため、実行候補の証拠として付け替えない。
+
+| repository / PR | 実装確認時点の ref | 成功した CI |
+| --- | --- | --- |
+| [momo-db #28](https://github.com/ponta2git/momo-db/pull/28) | `b1f3fb6` | [39439927314](https://github.com/ponta2git/momo-db/actions/runs/39439927314)：build、migration 整合性、DB 回帰検証。本番適用 job は skipped。 |
+| [Summit #25](https://github.com/ponta2git/summit/pull/25) | `8febd9b` | [39440903776](https://github.com/ponta2git/summit/actions/runs/39440903776)：静的検査、DB integration、実 runtime image、capacity、canonical gate。 |
+| [momo-result #110](https://github.com/ponta2git/momo-result/pull/110) | `e64dcf05` | [39441131893](https://github.com/ponta2git/momo-result/actions/runs/39441131893)：API / Worker / Web、実 image の build・scan・smoke、ユーザー操作・復旧 E2E、`pr-ready`。 |
+
+これらの CI / fixture の成功は、P4 の固定最終 image と本番コピーによる業務・復旧の合格を代替しない。接続 guard は別の[読み取り専用 CI run](https://github.com/ponta2git/momo-db/actions/runs/39426563850)でも成功した。生の本番観測・dump・role 監査・隔離試験結果は認証付き暗号化 archive と鍵を private storage に保全し、一時 Fly / Neon / Docker 資源は削除済みである。
+
+今回判明した条件を、後続工程の入力と判定へ反映する。
+
+- **候補公開と経路の切替:** momo-result の master release 前に `MOMO_CUTOVER_ACTIVE=true` を設定し、merge 後の `deploy/production-mode.json` が `cutover` であることを確認する。Variable は job の選択、保護された master の marker は実行時の停止判定を担う。待機中の通常 deploy / rollback / 分析保守 job を取消し、保護環境の承認者・branch 制限・credential の期限を確認してから公開する。今回発行した一時 Fly token は7日で期限切れになるため、後日の実行時に確認・必要なら更新する。
+- **実 image の識別:** OCI index と `linux/amd64` の platform manifest の digest を混同しない。Machine が実際に使用する platform digest と producer run / attempt を固定する。旧 Summit は設定上の image が tag だったため、設定の完全一致と provider が解決した digest を別々に照合し、停止後に `sourceImage` の immutable digest へ固定する。tag をそのまま復旧候補にしない。この停止・旧版復元と、digest 不一致の拒否は隔離 Fly で確認した。
+- **停止確認の限界:** 新 image は各 process 自身が maintenance mode の DB identity・role・ledger・image・boot を報告し、pool 解放と保存値不変を確認した。再開の成功試験には安全な fixture の readiness も含む。古い readiness の拒否や失敗後の停止維持、旧 image の停止状態への復元が成功しても、実 consumer の通常業務・旧版の業務起動は P4 で別に通す。
+- **role と観測の鮮度:** primary owner だけで Worker の分析・LISTEN 接続を代用しない。追加 reader の SELECT、default privilege、LISTEN と書込み拒否は実 copy で確認済みで、P4 の対応接続へ渡す。旧 image の helper は実プロセスの自己報告として扱わず、設定・socket・同一 instance の関連付けを保存する。新 image の自己報告は5分、旧 image の関連付け観測は30分の鮮度条件で採り直す。今回の監査を後日の fresh な観測として流用しない。
+- **容量・所要時間・中断:** PostgreSQL 18 の locale・`nc`・CA、複数 copy と PGDATA 2 GiB / memory 3 GiB の適合を確認した。source inventory は約135秒、成功した dump は約246秒だったが、別試行では5分の timeout に達した。dump の上限を20分にし、中断時に所有 container・子 process を回収する経路を検証した。この準備試験の時間を停止時間の上限にせず、P4 / P5 で全経路を測り直す。
+- **外部依存と最終証拠:** 隔離 consumer runner の外向き通信遮断、OAuth transport、native 子 process、browser 結果の受渡しは個別に検証した。browser fixture 単独を通信遮断の証拠とせず、P4 では実画像 mirror・通知 stub と同じ隔離構成に結び付ける。SQL 入口が要求する `cutover-final-evidence.yml` と最終証拠は P3 で実装・検証し、手作りの成功証拠で代用しない。
 
 ## 工程2：メンテナンス宣言前の実装と合格条件
 
 以下の順に入口・比較器・最終判定経路の安価な失敗を除き、固定候補で本番コピーを一巡する。各 gate の実装・確認が欠けたまま宣言しない。本番アプリで停止・配備を試す段階ではない。
 
 ### P1. 保護された適用・停止・配備経路を作る
+
+実装・隔離試験・PR CI は上記の ref で成功済み。本番用の固定 master 候補の公開と、その producer run / attempt・digest の確定は残っている。以下は最終候補で満たす受入条件として維持する。
 
 - **DB 適用:** 正規 migrator、protected environment `production-db` の承認、`CI Actions` job の接続 preflight を維持する一時入口を作る。固定 commit / profile、接続先、`0000`–`0072` baseline、停止証拠、最終 source の保存値・sequence を SQL 直前に照合する。結果不明・target ledger・部分適用では盲目的に再実行せず、工程3の状態判定へ送る。GitHub Secret を使う接続 guard を読み取り専用 CI run で先に通す。長い品質 gate は宣言前に終え、本番 SQL job は固定成果物を使う。
 - **候補 image の公開:** momo-result は必要な権限のある公開専用 job で build / scan / smoke 済み image を宣言前に registry へ push し、producer run / attempt と digest を固定する。この job は配備・起動しない。Summit と旧版にも出所、digest、設定、再配備入口を確保する。
@@ -44,12 +67,16 @@
 
 ### P2. 検証器と環境を短い試験で通す
 
+入口・比較器・容量・role mapping・3 consumer の短い縦断試験は成功済み。P4 では固定した最終 image と実コピーへ接続し直し、以下の契約を同じ候補の証拠へ結び付ける。
+
 - **source と容量:** snapshot / 暗号化より前に、承認済み Neon production branch / endpoint、host、DB 名、実接続先、ledger を独立した読み取り専用 preflight で照合する。rehearsal CLI の source URL は direct 形式の確認だけで、branch 同一性を証明しない。PostgreSQL 18 image の locale・`nc`・CA、Docker daemon、source major / locale、暗号化ファイルと結果保存、inventory / dump の timeout、PGDATA 2 GiB / memory 3 GiB の実量適合を確かめる。不足なら容量設計を直して最初から通す。
 - **比較器:** 現行の入出力に対応する正常な新規行・publication・期限切れ削除と、列改変・欠落・余分な行・無関係な期限切れを拒否する小さな fixture を先に通す。前回の誤検知を広い除外規則で隠さない。
-- **実 instance と consumer:** `captureApplicationRoleAudit` には運用入口がなく、CLI の localhost relay は command ごとに閉じる。実 instance の role / boot 観測から暗号化監査を作る入口と、隔離 copy に実 image を継続接続する runner を作る。role mapper の単一 owner 等の仮定が実 DB に合わなければ修正する。native 子 process の実引数・終了、browser 結果の保存・受渡し、外部通知・object・OAuth の stub / mirror と外向き通信遮断を個別に確認する。
+- **実 instance と consumer:** `capture-role-audit.mjs` で実 instance の role / boot 観測を暗号化監査へ保存し、`consumer-runner.mjs` / `consumer-probe.mjs` で隔離 copy に実 image を継続接続する。CLI の localhost relay は command ごとに閉じるため、長い業務試験の接続先に流用しない。primary owner と追加 reader の mapping を各接続へ適用し、未知の role / 権限構成なら停止する。native 子 process の実引数・終了、browser 結果の保存・受渡し、外部通知・object・OAuth の stub / mirror と外向き通信遮断を個別に確認する。
 - **短い縦断試験:** 接続先・role・停止・証拠受渡しを一度つなぎ、各 process 自身が DB identity、login role、ledger、image digest、boot を報告できることを確かめる。入口や比較器の不具合を、本番コピーの長い一巡で初めて発見しない。
 
 ### P3. 最終データ判定と停止中の実行経路を作る
+
+P1 の SQL 入口へ渡す最終証拠 producer `.github/workflows/cutover-final-evidence.yml` は、この工程で実装する。短い経路・全工程の代替経路のどちらでも、固定3 ref / profile、停止・backup・検証の時刻と有効期限、復元して読み出した backup、最終 source の全保存値・schema・role・ledger・sequence・locale、3 Machine の停止設定を実測から生成する。`cutover-guard.mjs` の契約と SQL workflow の候補 SHA / producer run / attempt / artifact digest 照合へ接続し、欠落・古い証拠・候補不一致・途中失敗を拒否するところまで隔離 copy で通す。SQL 成功後の本番全件比較と、結果不明時の読み取り専用状態分類も別に必要である。
 
 停止後に使う判定器として、新しい backup を復元して読み、成功済み rehearsal の**復元 baseline**と source の全保存値・schema・ledger・sequence・locale を比較する経路を作る。宣言前は隔離 copy から模擬最終 backup を作って試す。role・接続先・設定は事前の source 監査・固定設定に照合する。MVCC snapshot だけでは sequence と停止継続を証明しない。実際の停止後に backup 以降の書込みや自動再起動があれば backup と後続証拠を失効させる。
 
@@ -65,9 +92,9 @@
 
 ### P4. 候補を固定し、本番コピーで DB・業務・復旧を通す
 
-1. DB、Summit、momo-result の対応 commit / ref、比較器、設定、新旧 image の producer run / attempt・digest を固定する。momo-result は現行 develop の対象変更全体を release 候補とし、許可された事前 master merge と CI を終える。変更後は下記の「候補が変わったとき」に従って gate を更新する。
+1. DB、Summit、momo-result の対応 commit / ref、比較器、設定、新旧 image の producer run / attempt・digest を固定する。momo-result は現行 develop の対象変更全体を release 候補とし、別途承認を得た事前 master merge と CI を終える。P1 の公開専用経路で候補を公開し、registry から解決した platform digest と実 Machine / process の報告を照合する。PR CI の artifact や隔離試験用 registry の image を最終候補の公開済み証拠として扱わない。変更後は下記の「候補が変わったとき」に従って gate を更新する。
 2. [DB 手順](../migration-rehearsal.md#db-部分の実行)を clean tree の固定 commit と **`--profile canonical-identities-retired-slots-v1`** で `snapshot → restore → rehearse → recover-rehearsal` まで通す。既定の `preserve-v1` は pending tail を拒否する。`status.checks` と `incomplete`、全暗号化 report を読み、DB 復元・全保存値・schema・ledger・sequence、二回目 no-op、旧 DB の復元を確認する。
-3. 実 instance の source role / boot 監査を作り、smoke / recovery copy の role mapping を確認する。隔離した**同じ実 image**を copy に接続し、各 process 自身の接続先・role・ledger・boot を証明する。smoke copy で旧 ID / URL / 認証・replay、旧 artifact / basis からの次の操作、worker lease / fencing と publication、Summit の保存済み通知・再送を実データの対象で確かめる。OCR 対象には隔離した実画像 mirror を用意し、外部配送は stub に限定する。操作ごとに入力、値域・境界、許容する行・列・時刻・副作用を先に定め、前後の差分を読む。実データに対象がない場合は fixture の結果と区別し、必須 gate を空欄のまま合格にしない。
+3. 実 instance の source role / boot 監査を採り直し、smoke / recovery copy の primary owner と Worker 追加 reader の role mapping を確認する。隔離した**同じ実 image**を copy に接続し、各 process 自身の接続先・role・ledger・boot を証明する。maintenance probe の後、実 consumer の通常起動・readiness と、C5 で使う代表的な業務データの読み取りを用意して通す。smoke copy で旧 ID / URL / 認証・replay、旧 artifact / basis からの次の操作、worker lease / fencing と publication、Summit の保存済み通知・再送を実データの対象で確かめる。OCR 対象には隔離した実画像 mirror を用意し、外部配送は stub に限定する。操作ごとに入力、値域・境界、許容する行・列・時刻・副作用を先に定め、前後の差分を読む。実データに対象がない場合は fixture の結果と区別し、必須 gate を空欄のまま合格にしない。
 4. 別の recovery DB に実際の旧 image を接続し、旧 ledger・role・設定で起動、代表的な読取りと安全な書込みを確認する。元 DB への pool が残らないことも証明する。復旧 artifact と配備入口が利用できなければ不合格とする。
 5. 短い経路を採用する場合は、同一 backup から作った別々の実 copy で P3 の短い経路と全工程の判定・結果を照合する。その backup から作った隔離 fixture で変更行・sequence、異常、中断の分岐も試し、段階別時間を記録する。短い経路が合格しない場合は停止・source guard を付けた P3 の代替経路で全工程を測る。
 
