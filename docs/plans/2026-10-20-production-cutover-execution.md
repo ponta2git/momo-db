@@ -2,7 +2,7 @@
 
 記録時点: 2026-10-21。対象: momo-db / momo-result / Summit。
 
-> 2026-10-23 追記：停止切替と通常 CD の再開は完了し、専用 workflow を撤去した。以下は当時の計画・検証記録であり、現在の実行手順ではない。適用と復旧の規範は [development.md](../development.md#6-適用と-release-順序) を参照する。
+> 2026-10-23 完了記録：本番移行、全 consumer の切替・通常再開、通常 CD の再開は完了した。[工程4の結果](#工程4完了記録2026-10-23)に完了範囲、検証、後続へ引き継ぐ項目をまとめる。以下の P1–P5 / C1–C6 は当時の計画・検証記録であり、現在の操作指示ではない。通常の適用・復旧は [development.md](../development.md#6-適用と-release-順序) に従う。
 
 この文書は、メンテナンスの宣言条件、停止中の進行条件、中断時の行き先を定める。実際の担当者・操作時刻・実コマンド、本番状態の観測値、復旧資材の所在と保管構成は Git 管理外の `private/` または各 consumer の非公開 runbook に記録する。公開文書には受入条件・実装契約・検証結果の要約を残す。DB 変更と承認の規範は [development.md](../development.md) に従い、[2026-10-17 の設計計画](./2026-10-17-db-refactor-and-migration-plan.md)に残る撤去済み P0 制御を実行指示として使わない。
 
@@ -275,6 +275,25 @@ DB と全 consumer が同じ組で合格したら、受付、処理、配送と�
 
 component 別の停止・配備・旧版復元、最終 source を照合する SQL guard、証拠 producer、状態分類・全件比較は P1–P4 で実装・隔離検証済みである。本番では C1–C6 の実状態・有効な証拠・承認を必要とする。停止・source guard と現行 CLI 全工程を採用し、P5 で確定した期限内に進める。
 
-## 工程4：完了後
+## 工程4：完了記録（2026-10-23）
 
-最終 SHA、run / attempt、比較結果、復旧候補、未確認範囲を記録する。release 専用 patch は develop 向け PR に反映し、一時 workflow・配備 script を撤去する。本番 migration、全 consumer の切替、再開と安定確認までを完了条件とし、ローカルテストや事前 merge だけで完了扱いにしない。
+本番 migration と保存対象の比較、対応する全 consumer の切替・通常再開を完了した。通常 CD の再開と、終了済みの切替専用入口の整理も以下の範囲で完了している。事前リハーサル、本番での観測、整理 PR の CI はそれぞれの対象・時点の証拠として扱う。
+
+| 項目 | 結果・参照 |
+| --- | --- |
+| 本番 DB | `0073`–`0095` を適用し、全 migration 履歴と移行後の保存値比較が成功。[適用・比較 run](https://github.com/ponta2git/momo-db/actions/runs/39779714834) attempt 1。詳細な比較結果と復元資材は非公開記録に保持 |
+| consumer | 固定した対応版へ切り替え、全 consumer の readiness、Runtime の公開応答、再開後の代表読取りを確認。実際の image・設定・run / attempt は非公開の実行記録に固定 |
+| 通常 CD | [Summit #28](https://github.com/ponta2git/summit/pull/28)、[momo-result #114](https://github.com/ponta2git/momo-result/pull/114)・[#115](https://github.com/ponta2git/momo-result/pull/115) を反映。通常の承認・排他を維持して再開 |
+| 切替専用入口 | [momo-db #32](https://github.com/ponta2git/momo-db/pull/32) と [Summit #29](https://github.com/ponta2git/summit/pull/29) は master、[momo-result #116](https://github.com/ponta2git/momo-result/pull/116) は develop へ反映。専用 workflow と公開専用 job を撤去 |
+| 整理差分の検証 | 各 PR の必須 CI と momo-result の System E2E が成功。momo-db / Summit の master CI も成功。整理作業による本番 SQL・再配備は実施していない |
+
+### 確認の範囲と後続への引継ぎ
+
+- 本番再開後の実 OAuth 操作と、専用の Summit 通知業務 probe は未実施。事前の業務検証、CI の E2E、readiness や代表読取りを、その本番確認の代替として成功扱いにしない。
+- momo-result #116 の master への反映は次回 release に残る。develop への統合を、本番 release 済みと扱わない。
+- 通常運用の保護、保守起動、比較・復元用 script と tests は保持した。切替専用 credential / 権限の撤去は未実施であり、「全一時資材を撤去済み」とはしない。撤去には現在の依存先と保持要件の確認が必要である。
+- backup、暗号化証拠、固定 image の識別情報と当時の実行入力を保持する。過去の有効期限・未実施判定は書き換えない。新規書込みを再開した後の復旧は新規データを保全する forward fix を原則とし、切替前の DB や image を単独で戻さない。
+
+この完了記録の整理では本番への再接続・再試験・配備を追加していない。個別機能の本番受入が未確認の場合は、その機能のチケットで残りを追跡する。
+
+関連チケットの記録も整理した。[MOM-34](https://linear.app/ponta/issue/MOM-34)（仕様）と [MOM-35](https://linear.app/ponta/issue/MOM-35)（DB 保存・移行）は Done。[MOM-33](https://linear.app/ponta/issue/MOM-33) はロール別の本番利用確認を残すため In Progress を維持する。
