@@ -104,7 +104,9 @@ pnpm db:migrate
 
 master push では CI が build と `drizzle-kit check`、通知契約と既存 DB 保全のテストを行う。push 前後で `drizzle/` に変更がある場合は protected environment `production-db` で対象 commit の承認を待ち、承認後に `CI Actions` の実行 job が接続 preflight、正規 migration、全 migration 履歴の確認を直列実行する。`drizzle/` の変更がない push は本番承認・適用 job を起動しない。通常運用で承認や preflight を迂回しない。
 
-canonical identity の破壊的 tail が未適用の間、`db:migrate:ci` は通常経路からの適用を拒否する。停止切替には専用の `cutover-apply.yml` を使い、固定 commit、承認済み接続先、厳密な `0000`–`0072` 履歴、全 writer の停止設定、復元確認済み backup、最終 source の全保存値・schema・role・sequence を SQL 直前に照合する。結果不明・部分適用・既に target の場合は再実行せず読み取り専用で分類する。この入口だけでは切替の準備完了にならない。[実施計画](plans/2026-10-20-production-cutover-execution.md) の P3 が生成する最終証拠と、その生成 workflow の実装・実コピー検証が別途必要である。
+canonical identity の停止切替は完了し、切替専用の `cutover-apply.yml`、`cutover-final-evidence.yml`、`cutover-preflight.yml` は撤去した。以後の互換な migration は上記の通常 CI 経路を使う。`db:migrate:ci` は引き続き履歴の prefix を照合し、`0073`–`0095` の破壊的 tail が未適用の DB を拒否する。古い DB に対してこの guard を外したり、過去の切替 workflow を復活させたりして適用しない。再度の停止切替が必要なら、現在の DB・consumer・backup に基づく新しい計画と承認を用意する。
+
+[当時の実施計画](plans/2026-10-20-production-cutover-execution.md) と比較・復元・分類用の script / test は検証記録の再確認用に保持する。固定 baseline を前提とするため、現在の本番に対する定例手順ではない。保存した backup と暗号化証拠の保持は、workflow の撤去とは別に管理する。
 
 ### CI を復旧できない場合の緊急適用
 

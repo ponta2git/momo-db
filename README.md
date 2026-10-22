@@ -57,7 +57,7 @@ pnpm build
 | `pnpm db:migrate` | 未適用のマイグレーションを DB に適用 |
 | `pnpm db:check` | マイグレーションの整合性チェック |
 | `pnpm db:preflight:ci` | CI の migration 用 direct 接続を安全に検証 |
-| `pnpm db:cutover-baseline:ci` | 今回の停止切替前に、同じ接続先の適用済み履歴が厳密に `0000`–`0072` であることを読み取り確認（migration は適用しない） |
+| `pnpm db:cutover-baseline:ci` | 旧 baseline の再検証専用。適用済み履歴が厳密に `0000`–`0072` であることを読み取り確認（通常運用では使わない） |
 | `pnpm migration:rehearsal <command>` | 暗号化した本番コピーの棚卸し・隔離復元・移行比較（[手順と証拠の範囲](docs/migration-rehearsal.md)） |
 
 ## ローカル開発（postgres コンテナ使用）
