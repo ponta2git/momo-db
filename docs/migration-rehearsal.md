@@ -1,8 +1,10 @@
 # 本番コピーのローカル移行リハーサル
 
+> `0073`–`0095` の停止切替は完了し、専用 workflow は撤去した。この CLI と以下の固定 baseline 手順は過去の移行・復元の再検証用に保持している。現在の本番の定例手順ではなく、新しい移行への再利用には前提と profile の見直しが必要である。
+
 `pnpm migration:rehearsal` は、本番を読み取り、暗号化した整合 snapshot を所有確認付きのローカル PostgreSQL 18 へ復元する。所有確認済みのローカル copy では固定 commit の正規 `pnpm exec drizzle-kit migrate` を使う。本番の通常 CI 入口とは分け、破壊的 tail を通常 CI から適用できない guard を維持する。本番への migration / restore / maintenance 切替はこの入口に実装していない。
 
-**この CLI の `rehearse` / `recover-rehearsal` が合格しても、切替リハーサルは完了しない。** 現行実装は DB の復元・移行・保存値比較と旧 DB の復元までを扱う。実 consumer image の起動・接続切替・業務操作、停止の継続、外部送信の遮断、本番適用は別の gate である。今回の `0073`–`0095` 切替で不足する実行入口と宣言条件は[現行の実行計画](plans/2026-10-20-production-cutover-execution.md#工程2メンテナンス宣言前の実装と合格条件)に記す。未実施の gate を `status.checks` の DB 成功で代替しない。
+**この CLI の `rehearse` / `recover-rehearsal` が合格しても、切替リハーサルは完了しない。** 現行実装は DB の復元・移行・保存値比較と旧 DB の復元までを扱う。実 consumer image の起動・接続切替・業務操作、停止の継続、外部送信の遮断、本番適用は別の gate である。今回の `0073`–`0095` 切替で不足する実行入口と宣言条件は[当時の実行計画](plans/2026-10-20-production-cutover-execution.md#工程2メンテナンス宣言前の実装と合格条件)に記す。未実施の gate を `status.checks` の DB 成功で代替しない。
 
 ## 準備
 
@@ -136,11 +138,13 @@ pnpm migration:rehearsal application-role \
 - 新規の移行 copy では正規 migrator を再実行し、二回目が schema・ledger・保存値・sequence を変えないことまで検証する。途中終了後の既存 copy は読取り比較で分類し、再適用しない。二回目実行の証拠が残っていなければ未確認として fresh run を求める。
 - consumer の smoke、別 DB への実接続切替、画像本体、停止直後の最終 snapshot、本番承認・適用・再開は別の証拠が必要である。
 
-停止後の時間短縮に使う「最終 backup を実際に復元して読み、成功済み rehearsal の復元 baseline と全保存値・schema・ledger・sequence・locale を、role / 接続先 / 設定は事前の source 監査・固定設定と比べる。一致すればその移行証拠を再利用し、保存行 / sequence だけが変われば最終 copy で移行を一回実行して全件比較する」という分岐は、**この CLI の現行 command では実行できない**。最終 source の sequence 照合、停止継続、実際の consumer / 復旧 image 接続、適用前 guard まで含む停止専用入口を実装・実コピーで検証するまでは、[現行計画](plans/2026-10-20-production-cutover-execution.md)の短い経路を利用可能なものとして扱わない。
+停止後の時間短縮に使う「最終 backup を実際に復元して読み、成功済み rehearsal の復元 baseline と全保存値・schema・ledger・sequence・locale を、role / 接続先 / 設定は事前の source 監査・固定設定と比べる。一致すればその移行証拠を再利用し、保存行 / sequence だけが変われば最終 copy で移行を一回実行して全件比較する」という分岐は、**この CLI の現行 command では実行できない**。最終 source の sequence 照合、停止継続、実際の consumer / 復旧 image 接続、適用前 guard まで含む停止専用入口を実装・実コピーで検証するまでは、[当時の計画](plans/2026-10-20-production-cutover-execution.md)の短い経路を利用可能なものとして扱わない。
 
-今回の手順と宣言条件は[現行の実行計画](plans/2026-10-20-production-cutover-execution.md)、正規 migration の規範は[開発手順](development.md)に従う。[旧統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)は設計背景であり、撤去された停止制御や未実装の consumer gate を実行済みとみなさない。
+今回の手順と宣言条件は[当時の実行計画](plans/2026-10-20-production-cutover-execution.md)、正規 migration の規範は[開発手順](development.md)に従う。[旧統合計画](plans/2026-10-17-db-refactor-and-migration-plan.md)は設計背景であり、撤去された停止制御や未実装の consumer gate を実行済みとみなさない。
 
 ## 全工程による最終証拠と読み取り専用分類
+
+以下は撤去済み workflow の契約記録であり、現在実行できる手順ではない。再検証には保存した候補・証拠を使い、本番操作には新しい計画と承認が必要である。
 
 `cutover-final-evidence.yml` は、成功済み master CI と同一 SHA、固定した Summit / momo-result の ref、復旧余裕を入力にする。鍵は既存の `CUTOVER_EVIDENCE_KEY_BASE64`、source と provider の接続は `CI Actions` の Secret / Variable を使う。実行ログへ値を出さず、backup・source・比較 report・最終証拠を暗号化 artifact として保存する。鍵の private 保管と artifact の保持期間を別途確保する。
 
