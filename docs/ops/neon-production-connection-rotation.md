@@ -36,7 +36,6 @@ Neon 側の変更だけでは GitHub の設定は更新されない。
 ## preflight が失敗した場合
 
 `db:preflight:ci` は URL や接続先 hostname を出力せず、承認済み direct hostname、URL の DB 名、接続後の `current_database()` を照合する。
-過去の切替検証用に残す `db:cutover-baseline:ci` は通常の接続更新では実行しない。このコマンドは `drizzle.__drizzle_migrations` が `0000`–`0072` の hash・timestamp と完全一致することを確認する。これは schema 全体の drift 証明や停止後 backup の代わりにはならない。
 失敗時は migration を別経路で強行せず、次を確認する。
 
 - `ENOTFOUND` / `ECONNREFUSED`: project・branch・endpoint の再作成や URL の古さ

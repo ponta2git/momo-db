@@ -1,51 +1,6 @@
 import { createHash } from 'node:crypto';
-import { inventoryClient } from './sql-client.mjs';
 import { expectedMigrationHistory } from '../check-migration-history.mjs';
 import { digest, requireCondition } from './files.mjs';
-
-export function databaseLocation(value, { local = false } = {}) {
-  let url;
-  try { url = new URL(value); } catch { requireCondition(false, 'INVALID_DATABASE_URL'); }
-  requireCondition(['postgres:', 'postgresql:'].includes(url.protocol) && !!url.hostname &&
-    !!url.pathname.slice(1) && !url.hostname.includes('-pooler.'), 'DIRECT_POSTGRES_URL_REQUIRED');
-  if (local) requireCondition(['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname), 'LOOPBACK_DATABASE_REQUIRED');
-  const allowedParameters = new Set(['sslmode', 'channel_binding']);
-  const seen = new Set();
-  for (const [name] of url.searchParams) {
-    requireCondition(allowedParameters.has(name) && !seen.has(name), 'UNSUPPORTED_DATABASE_URL_PARAMETER');
-    seen.add(name);
-  }
-  const configuration = {
-    PGHOST: url.hostname,
-    PGPORT: url.port || '5432',
-    PGDATABASE: decodeURIComponent(url.pathname.slice(1)),
-    PGUSER: decodeURIComponent(url.username),
-    PGPASSWORD: decodeURIComponent(url.password),
-    PGSSLMODE: url.searchParams.get('sslmode') ?? (local ? 'disable' : 'require'),
-  };
-  requireCondition(['disable', 'require', 'verify-ca', 'verify-full'].includes(configuration.PGSSLMODE), 'INVALID_SSL_MODE');
-  if (configuration.PGSSLMODE !== 'disable') {
-    // The disposable client image has the system trust store, not a user's
-    // ~/.postgresql/root.crt. Never fix a missing root file by disabling TLS
-    // certificate/hostname verification.
-    configuration.PGSSLMODE = 'verify-full';
-    configuration.PGSSLROOTCERT = 'system';
-  }
-  if (url.searchParams.has('channel_binding')) {
-    configuration.PGCHANNELBINDING = url.searchParams.get('channel_binding');
-    requireCondition(['disable', 'prefer', 'require'].includes(configuration.PGCHANNELBINDING), 'INVALID_CHANNEL_BINDING');
-  }
-  requireCondition(Object.values(configuration).every(item => !/[\r\n\0]/.test(item)), 'INVALID_DATABASE_URL');
-  return {
-    configuration,
-    identity: digest({ host: configuration.PGHOST, port: configuration.PGPORT, database: configuration.PGDATABASE }),
-  };
-}
-
-export function connect(value, { readOnly = true } = {}) {
-  const { configuration: config } = databaseLocation(value, { local: ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(value).hostname) });
-  return inventoryClient(config, { readOnly });
-}
 
 const identifier = (sql, name) => sql.unsafe('"' + name.replaceAll('"', '""') + '"');
 

@@ -20,10 +20,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test:integration": "node --test --test-concurrency=1 tests/discord-notifications.test.mjs tests/ocr-submissions.test.mjs",
     "test:prepare": "node tests/migrate-test-database.mjs",
-    "test:migrations": "node --test tests/migration-preservation.test.mjs tests/analysis-publication-migration.test.mjs tests/ocr-submission-migration.test.mjs tests/detail-navigation-migration.test.mjs tests/radar-migration.test.mjs tests/radar-manual-migration.test.mjs tests/rank-outlook-migration.test.mjs tests/login-account-role-migration.test.mjs tests/db-job-scheduler-migration.test.mjs tests/migration-history.test.mjs tests/oauth-state-migration.test.mjs tests/migration-inventory.test.mjs tests/migration-rehearsal.test.mjs tests/migration-runner.test.mjs tests/migration-snapshot.test.mjs tests/public-identifier-migration.test.mjs tests/public-identifier-profile.test.mjs tests/analysis-fencing-counter-migration.test.mjs tests/layout-family-migration.test.mjs tests/canonical-identities.test.mjs tests/canonical-identity-migration.test.mjs tests/canonical-identity-profile.test.mjs tests/worker-slot-retirement-migration.test.mjs tests/migration-application-role.test.mjs tests/cutover-connection.test.mjs",
-    "migration:rehearsal": "node scripts/migration/run.mjs",
-    "migration:source-preflight": "node scripts/migration/source-preflight.mjs",
-    "test:cutover": "node --test tests/application-reader.test.mjs tests/consumer-delta.test.mjs tests/migration-source-preflight.test.mjs tests/capture-role-audit.test.mjs tests/cutover-guard.test.mjs tests/cutover-final-evidence.test.mjs",
+    "test:migrations": "node --test tests/migration-preservation.test.mjs tests/analysis-publication-migration.test.mjs tests/ocr-submission-migration.test.mjs tests/detail-navigation-migration.test.mjs tests/radar-migration.test.mjs tests/radar-manual-migration.test.mjs tests/rank-outlook-migration.test.mjs tests/login-account-role-migration.test.mjs tests/db-job-scheduler-migration.test.mjs tests/migration-history.test.mjs tests/oauth-state-migration.test.mjs tests/migration-inventory.test.mjs tests/public-identifier-migration.test.mjs tests/public-identifier-profile.test.mjs tests/analysis-fencing-counter-migration.test.mjs tests/layout-family-migration.test.mjs tests/canonical-identities.test.mjs tests/canonical-identity-migration.test.mjs tests/canonical-identity-profile.test.mjs tests/worker-slot-retirement-migration.test.mjs tests/migration-target.test.mjs",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
@@ -31,7 +28,6 @@
     "db:check": "dotenv -e .env.local -- drizzle-kit check",
     "db:check:ci": "drizzle-kit check",
     "db:preflight:ci": "node scripts/check-migration-connection.mjs",
-    "db:cutover-baseline:ci": "node scripts/check-cutover-baseline.mjs",
     "db:migrate:ci": "node scripts/migrate-standard-ci.mjs",
     "db:verify:ci": "node scripts/check-migration-history.mjs"
   },
@@ -47,8 +43,6 @@
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-zod": "^0.8.3",
-    "pg": "8.23.1",
-    "pg-cursor": "2.22.1",
     "postgres": "3.4.9",
     "typescript": "~7.0.0"
   }

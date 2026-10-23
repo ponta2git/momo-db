@@ -4,7 +4,7 @@ import test from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { inspectSchema, inspectIdentifierValues } from '../scripts/migration/inventory.mjs';
-import { schemaStructure } from '../scripts/migration/run.mjs';
+import { schemaStructure } from '../scripts/migration/schema.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
 
