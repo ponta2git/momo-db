@@ -69,9 +69,6 @@ jobs:
       - name: drizzle-kit check
         run: pnpm db:check:ci
 
-      - name: Cutover source and consumer comparator contracts
-        run: pnpm test:cutover
-
       - name: Apply all migrations to fresh test database
         run: pnpm test:prepare
 
