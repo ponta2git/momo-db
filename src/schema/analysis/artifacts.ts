@@ -48,6 +48,7 @@ export const seriesAnalysisArtifacts = pgTable(
     reviewChunkCount: integer("review_chunk_count").notNull(),
     drilldownChunkCount: integer("drilldown_chunk_count").notNull(),
     matchContextChunkCount: integer("match_context_chunk_count").notNull(),
+    achievementChunkCount: integer("achievement_chunk_count").notNull().default(0),
     outlookSummaryChunkCount: integer("outlook_summary_chunk_count").notNull().default(0),
     outlookReferenceChunkCount: integer("outlook_reference_chunk_count").notNull().default(0),
     encodedBytes: bigint("encoded_bytes", { mode: "bigint" }).notNull(),
@@ -89,7 +90,7 @@ export const seriesAnalysisArtifacts = pgTable(
     ),
     check(
       "series_analysis_artifacts_chunk_counts_check",
-      sql`${table.aggregateChunkCount} >= 1 AND ${table.reviewChunkCount} >= 0 AND ${table.drilldownChunkCount} >= 0 AND ${table.matchContextChunkCount} >= 0 AND ${table.outlookSummaryChunkCount} >= 0 AND ${table.outlookReferenceChunkCount} >= 0`
+      sql`${table.aggregateChunkCount} >= 1 AND ${table.reviewChunkCount} >= 0 AND ${table.drilldownChunkCount} >= 0 AND ${table.matchContextChunkCount} >= 0 AND ${table.outlookSummaryChunkCount} >= 0 AND ${table.outlookReferenceChunkCount} >= 0 AND ${table.achievementChunkCount} >= 0`
     ),
     check(
       "series_analysis_artifacts_bytes_check",
@@ -133,6 +134,37 @@ export const seriesAnalysisScopeAggregateArtifacts = pgTable(
     ),
     checkSeriesAnalysisChunk(
       "series_analysis_scope_aggregate_artifacts_chunk_check",
+      table
+    )
+  ]
+);
+
+export const seriesAnalysisAchievementArtifacts = pgTable(
+  "series_analysis_achievement_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => seriesAnalysisArtifacts.id, { onDelete: "cascade" }),
+    scopeKey: text("scope_key").notNull(),
+    scopeKind: text("scope_kind").notNull(),
+    seasonMasterId: text("season_master_id"),
+    mapMasterId: text("map_master_id"),
+    payload: bytea("payload").notNull(),
+    encodedBytes: integer("encoded_bytes").notNull(),
+    decodedBytes: integer("decoded_bytes").notNull(),
+    itemCount: integer("item_count").notNull(),
+    nestingDepth: integer("nesting_depth").notNull(),
+    checksum: text("checksum").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.scopeKey] }),
+    check("series_analysis_achievement_artifacts_domain_check", sql`${table.scopeKind} = 'overall'`),
+    checkSeriesAnalysisScope(
+      "series_analysis_achievement_artifacts_scope_check",
+      table
+    ),
+    checkSeriesAnalysisChunk(
+      "series_analysis_achievement_artifacts_chunk_check",
       table
     )
   ]

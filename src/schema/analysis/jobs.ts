@@ -100,7 +100,7 @@ export const seriesAnalysisJobs = pgTable(
     ),
     check(
       "series_analysis_jobs_trigger_check",
-      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation')`
+      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation','achievement_mutation')`
     ),
     check(
       "series_analysis_jobs_counts_check",
@@ -197,7 +197,7 @@ export const seriesAnalysisJobRequests = pgTable(
     ),
     check(
       "series_analysis_job_requests_trigger_check",
-      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation')`
+      sql`${table.trigger} IN ('manual','artifact_schema_update','algorithm_update','validation_contract_update','initial_backfill','match_mutation','achievement_mutation')`
     ),
     check(
       "series_analysis_job_requests_fulfilled_shape_check",
