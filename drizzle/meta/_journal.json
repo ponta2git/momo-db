@@ -687,6 +687,27 @@
       "when": 1792804526724,
       "tag": "0097_achievement-history-guards",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792810487206,
+      "tag": "0098_achievement-display-order",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792810499476,
+      "tag": "0099_achievement-order-and-lifetime-backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1792810598056,
+      "tag": "0100_achievement-radar-curve-contract",
+      "breakpoints": true
     }
   ]
 }

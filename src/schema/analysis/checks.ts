@@ -59,6 +59,7 @@ export function checkSeriesAnalysisValidationSchema(
       AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v4-full-validation-v1' OR ${artifactSchemaVersion} = 4)
       AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v5-full-validation-v1' OR ${artifactSchemaVersion} = 5)
       AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v6-full-validation-v1' OR ${artifactSchemaVersion} = 6)
-      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v7-full-validation-v1' OR ${artifactSchemaVersion} = 7)`
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v7-full-validation-v1' OR ${artifactSchemaVersion} = 7)
+      AND (${validationContractId} IS DISTINCT FROM 'series-analysis-artifact-v8-full-validation-v1' OR ${artifactSchemaVersion} = 8)`
   );
 }

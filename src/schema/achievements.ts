@@ -17,6 +17,7 @@ export const achievementItems = pgTable("achievement_items", {
   ruleKind: text("rule_kind").notNull(),
   threshold: numeric("threshold"),
   stars: integer("stars").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
   scopeKind: text("scope_kind").notNull(),
   appliesFrom: date("applies_from"),
   retiredAt: timestamp("retired_at", { withTimezone: true }),
