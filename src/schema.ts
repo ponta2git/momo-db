@@ -106,6 +106,7 @@ export {
 
 export {
   seriesAnalysisArtifacts,
+  seriesAnalysisAchievementArtifacts,
   seriesAnalysisArtifactIdentities,
   seriesAnalysisScopeAggregateArtifacts,
   seriesAnalysisOutlookSummaryArtifacts,
@@ -114,3 +115,5 @@ export {
   seriesAnalysisDrilldownArtifacts,
   seriesAnalysisMatchContextArtifacts
 } from "./schema/analysis/artifacts.js";
+
+export { achievementItems, achievementItemMaps, achievementClaims, achievementRetiredSnapshots, achievementRetiredManualSources } from "./schema/achievements.js";
