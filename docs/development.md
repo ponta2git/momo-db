@@ -108,6 +108,10 @@ canonical identity の停止切替は完了し、切替専用の `cutover-apply.
 
 [完了記録](plans/2026-10-20-production-cutover-execution.md)に結果と当時の固定 commit を残し、終了済みの切替 CLI・証拠 producer・リハーサル入口と操作手順は撤去した。通常 migration の guard と保存値・schema の移行回帰試験は維持する。保存した backup・暗号化証拠・鍵の保持は、実行資材の撤去とは別に管理する。
 
+### CI 設定修正後の再試行
+
+`drizzle/` に差分がない CI 設定修正後は、修正を master に反映してから `CI` workflow を master 指定で手動起動できる。手動起動も build・migration 検証、本番承認、接続 preflight、履歴 prefix の照合、正規 migration、全履歴の確認を通す。master 以外の手動起動では本番承認・適用を行わない。承認は新しい run の対象 commit に対して行い、履歴不明や破壊的 tail 未適用の guard は維持する。
+
 ### CI を復旧できない場合の緊急適用
 
 CI 自体を復旧できない緊急時に限り、同じ変更内容への明示承認と復元確認済み backup を揃え、承認対象 commit から手動適用できる。`DIRECT_URL` は実値を表示せず安全に環境変数へ注入し、preflight が成功した場合だけ migrate を実行する。

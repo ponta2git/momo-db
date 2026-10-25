@@ -1,5 +1,5 @@
 import { expectedMigrationHistory } from './check-migration-history.mjs';
-import { withVerifiedMigrationTarget } from './migration-target.mjs';
+import { PreflightConfigError, withVerifiedMigrationTarget } from './migration-target.mjs';
 import { command } from './migration/process.mjs';
 import { requireCondition as check, RehearsalError } from './migration/files.mjs';
 
@@ -16,6 +16,10 @@ try {
   });
   await command('pnpm', ['exec', 'drizzle-kit', 'migrate']);
 } catch (error) {
-  console.error(error instanceof RehearsalError ? error.code : 'STANDARD_MIGRATION_FAILED_DETAILS_WITHHELD');
+  if (error instanceof PreflightConfigError) {
+    console.error(error.message);
+  } else {
+    console.error(error instanceof RehearsalError ? error.code : 'STANDARD_MIGRATION_FAILED_DETAILS_WITHHELD');
+  }
   process.exitCode = 1;
 }

@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [master]
@@ -83,7 +84,7 @@ jobs:
   approve-migration:
     name: Approve production migration
     needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.ci.outputs.drizzle_changed == 'true'))
     runs-on: ubuntu-latest
     environment: production-db
     steps:
@@ -95,7 +96,7 @@ jobs:
     needs:
       - ci
       - approve-migration
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.ci.outputs.drizzle_changed == 'true'
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.ci.outputs.drizzle_changed == 'true'))
     runs-on: ubuntu-latest
     # Serialize migrations: never cancel in-progress to avoid partial schema state
     concurrency:
@@ -104,6 +105,7 @@ jobs:
     environment: CI Actions
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      MOMO_DB_EXPECTED_DIRECT_HOST: ${{ vars.MOMO_DB_EXPECTED_DIRECT_HOST }}
     steps:
       - uses: actions/checkout@v6
 
@@ -117,8 +119,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Verify migration connection
-        env:
-          MOMO_DB_EXPECTED_DIRECT_HOST: ${{ vars.MOMO_DB_EXPECTED_DIRECT_HOST }}
         run: pnpm db:preflight:ci
 
       - name: Run migration
