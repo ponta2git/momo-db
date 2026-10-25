@@ -20,7 +20,8 @@ import { migrateThrough, withMigrationPrefix } from './migration-prefix.mjs';
 import { seedCanonicalSource, legacy, validationContract } from './canonical-identity-fixtures.mjs';
 
 const repository = resolve('.');
-const latest = db => migrate(drizzle(db), { migrationsFolder: './drizzle' });
+const retirement = db => migrateThrough(db, 95);
+const fullHistory = db => migrate(drizzle(db), { migrationsFolder: './drizzle' });
 const codeIs = code => error => error.code === code && error.message === code;
 const slotName = 'worker_execution_slots';
 let history; let profile;
@@ -65,11 +66,20 @@ function assertRollbackAfterFirstLedgerAllocation(after, before) {
 }
 
 before(async () => {
-  history = await loadCanonicalIdentityHistory(repository, { profile: WORKER_SLOT_RETIREMENT_PROFILE });
+  const directory = mkdtempSync(join(tmpdir(), 'momo-retirement-reviewed-history-'));
+  try {
+    cpSync('./drizzle', join(directory, 'drizzle'), { recursive: true });
+    cpSync('./docs/contracts', join(directory, 'docs/contracts'), { recursive: true });
+    const path = join(directory, 'drizzle/meta/_journal.json');
+    const journal = JSON.parse(readFileSync(path, 'utf8'));
+    journal.entries = journal.entries.slice(0, 96);
+    writeFileSync(path, JSON.stringify(journal));
+    history = await loadCanonicalIdentityHistory(directory, { profile: WORKER_SLOT_RETIREMENT_PROFILE });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
   await isolated(async db => {
     await migrateThrough(db, 72);
     const referenceBefore = await snapshot(db);
-    await latest(db);
+    await retirement(db);
     const referenceAfter = await snapshot(db);
     profile = createCanonicalIdentityProfile({ history, referenceBefore, referenceAfter });
   });
@@ -114,11 +124,11 @@ test('generated retirement snapshots separate reseeding from one restrictive tab
 });
 
 test('fresh complete history removes the public slot export and a second ordinary migrator changes nothing', async () => isolated(async db => {
-  await latest(db);
+  await fullHistory(db);
   assert.equal((await db`SELECT to_regclass('public.worker_execution_slots') AS value`)[0].value, null);
   assert.equal(Object.hasOwn(await import('../dist/schema.js'), 'workerExecutionSlots'), false);
   const before = await snapshot(db);
-  await latest(db);
+  await fullHistory(db);
   assert.deepEqual(await snapshot(db), before);
 }));
 
@@ -136,7 +146,7 @@ test('restored canonical copy reseeds every floor without lowering issued counte
   await isolated(async (copy, copyName) => {
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', copyName], backup);
     assert.deepEqual(await rawRows(copy), originalRows);
-    await latest(copy);
+    await retirement(copy);
     assert.deepEqual(await rawRows(copy), expectedRows);
     assert.deepEqual([...await copy`SELECT legacy_id, fencing_counter::text FROM series_analysis_jobs ORDER BY legacy_id COLLATE "C"`], [
       { legacy_id: legacy.job, fencing_counter: '9007199254741041' },
@@ -151,7 +161,7 @@ test('restored canonical copy reseeds every floor without lowering issued counte
     assert.deepEqual(schemaStructure(after.schema), expectedSchema);
     assert.deepEqual(after.connection.ledger.slice(0, 94), before.connection.ledger);
     assert.deepEqual(after.connection.ledger, history.entries);
-    await latest(copy);
+    await retirement(copy);
     assert.deepEqual(await snapshot(copy), after);
   });
   await isolated(async (recovery, recoveryName) => {
@@ -174,7 +184,7 @@ for (const [name, change, code] of [
 ]) test(`retirement rejects ${name} and rolls back all changes`, async () => isolated(async db => {
   await canonicalFixture(db); await change(db);
   const before = await snapshot(db);
-  await assert.rejects(latest(db), error => error.cause?.code === '23514' && error.cause?.message === code);
+  await assert.rejects(retirement(db), error => error.cause?.code === '23514' && error.cause?.message === code);
   assert.deepEqual(await snapshot(db), before);
 }));
 
@@ -182,7 +192,7 @@ test('unknown dependent objects stop restrictive retirement and roll back the re
   await reseedFixture(db);
   await db.unsafe('CREATE VIEW public.unreviewed_slot_reader AS SELECT slot_key FROM public.worker_execution_slots');
   const before = await snapshot(db);
-  await assert.rejects(latest(db), error => error.cause?.code === '2BP01');
+  await assert.rejects(retirement(db), error => error.cause?.code === '2BP01');
   assertRollbackAfterFirstLedgerAllocation(await snapshot(db), before);
 }));
 
@@ -196,10 +206,10 @@ for (const table of ['worker_execution_slots', 'series_analysis_jobs', 'series_a
     const reader = db.begin(async tx => { await tx.unsafe(`SELECT * FROM public.${table}`); locked(); await hold; });
     await ready;
     try {
-      await assert.rejects(latest(db), error => error.cause?.code === '55P03');
+      await assert.rejects(retirement(db), error => error.cause?.code === '55P03');
       assert.deepEqual(await snapshot(db), before);
     } finally { release(); await reader; }
-    await latest(db);
+    await retirement(db);
   }));
 }
 
@@ -225,6 +235,7 @@ test('the retirement profile pins both tail files and rejects a missing, changed
       cpSync('./docs/contracts', join(directory, 'docs/contracts'), { recursive: true });
       const path = join(directory, 'drizzle/meta/_journal.json');
       const journal = JSON.parse(readFileSync(path, 'utf8'));
+      journal.entries = journal.entries.slice(0, 96);
       if (['reseed', 'drop'].includes(change)) {
         const file = join(directory, 'drizzle', journal.entries[change === 'reseed' ? 94 : 95].tag + '.sql');
         writeFileSync(file, readFileSync(file, 'utf8') + '\n-- changed retirement\n');
@@ -256,12 +267,12 @@ test('full old-source retirement proof covers all source columns and preserves a
   const backup = docker(['pg_dump', '-U', username, '--format=custom', '--no-owner', '--no-acl', sourceName]);
   await isolated(async (copy, name) => {
     docker(['pg_restore', '-U', username, '--exit-on-error', '--no-owner', '--no-acl', '-d', name], backup);
-    await latest(copy);
+    await retirement(copy);
     const captured = await snapshot(copy, profile);
     const result = compareCanonicalIdentityTransition({ before, sourceTransition, ...captured, profile });
     assert.equal(Object.values(result.checks).every(Boolean), true);
     assert.equal(result.checks.workerSlotRetirement, true);
-    await latest(copy);
+    await retirement(copy);
     assert.deepEqual((await snapshot(copy)).rows, captured.after.rows);
     for (const [name, change, code] of [
       ['missing retirement evidence', evidence => { evidence.retiredTables = []; }, 'CANONICAL_SOURCE_TRANSITION_INCOMPLETE'],
