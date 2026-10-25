@@ -106,7 +106,7 @@ master push では CI が build と `drizzle-kit check`、通知契約と既存 
 
 canonical identity の停止切替は完了し、切替専用の `cutover-apply.yml`、`cutover-final-evidence.yml`、`cutover-preflight.yml` は撤去した。以後の互換な migration は上記の通常 CI 経路を使う。`db:migrate:ci` は引き続き履歴の prefix を照合し、`0073`–`0095` の破壊的 tail が未適用の DB を拒否する。古い DB に対してこの guard を外したり、過去の切替 workflow を復活させたりして適用しない。再度の停止切替が必要なら、現在の DB・consumer・backup に基づく新しい計画と承認を用意する。
 
-[当時の実施計画](plans/2026-10-20-production-cutover-execution.md) と比較・復元・分類用の script / test は検証記録の再確認用に保持する。固定 baseline を前提とするため、現在の本番に対する定例手順ではない。保存した backup と暗号化証拠の保持は、workflow の撤去とは別に管理する。
+[完了記録](plans/2026-10-20-production-cutover-execution.md)に結果と当時の固定 commit を残し、終了済みの切替 CLI・証拠 producer・リハーサル入口と操作手順は撤去した。通常 migration の guard と保存値・schema の移行回帰試験は維持する。保存した backup・暗号化証拠・鍵の保持は、実行資材の撤去とは別に管理する。
 
 ### CI を復旧できない場合の緊急適用
 

@@ -12,7 +12,6 @@ import { createCanonicalIdentityProfile, inspectCanonicalSource, inspectCanonica
   compareCanonicalIdentityTransition, loadCanonicalIdentityHistory, canonicalColumnCoverage,
   canonicalLayout, CANONICAL_IDENTITY_PROFILE } from '../scripts/migration/canonical-identities.mjs';
 import { schemaStructure } from '../scripts/migration/schema.mjs';
-import { parseArguments } from '../scripts/migration/run.mjs';
 import { canonicalIdentity } from '../scripts/identity/canonical.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, username } from './migration-fixtures.mjs';
@@ -128,7 +127,6 @@ test('profile accepts the shared ASCII layout contract and rejects broad Unicode
   for (const value of fixture.accepted) assert.equal(canonicalLayout(value.input), value.canonical);
   for (const value of fixture.rejected) assert.throws(() => canonicalLayout(value), codeIs('CANONICAL_SOURCE_LAYOUT_UNMAPPED'));
   assert.equal(canonicalLayout(null), null);
-  assert.equal(parseArguments(['prepare', '--key-file', '/tmp/test-key', '--profile', CANONICAL_IDENTITY_PROFILE]).options.profile, CANONICAL_IDENTITY_PROFILE);
 });
 
 test('canonical profile inspection requires an unfiltered read-only repeatable-read snapshot', async () => isolated(async db => {

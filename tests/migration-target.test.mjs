@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { expectedCutoverBaseline, cutoverBaselineMatches } from "../scripts/check-cutover-baseline.mjs";
 import { PreflightConfigError, readMigrationTarget, verifyMigrationTarget } from "../scripts/migration-target.mjs";
 
 const directUrl = "postgresql://owner:never-log-this@ep-production.example/neondb?sslmode=require";
@@ -31,15 +30,4 @@ test("migration target verifies the database reported by the server", async () =
     verifyMigrationTarget(async () => [{ database_name: "other_db" }]),
     PreflightConfigError
   );
-});
-
-test("cutover guard accepts exactly the committed 0000-0072 ledger", () => {
-  const expected = expectedCutoverBaseline();
-  const actual = expected.map((entry, index) => ({ id: index + 1, ...entry }));
-  assert.equal(expected.length, 73);
-  assert.equal(cutoverBaselineMatches(expected, actual), true);
-  assert.equal(cutoverBaselineMatches(expected, actual.slice(0, -1)), false);
-  assert.equal(cutoverBaselineMatches(expected, [...actual, actual[0]]), false);
-  assert.equal(cutoverBaselineMatches(expected, actual.map((entry, index) => index === 72 ? { ...entry, hash: "0".repeat(64) } : entry)), false);
-  assert.equal(cutoverBaselineMatches(expected, actual.map((entry, index) => index === 10 ? { ...entry, id: 99 } : entry)), false);
 });
