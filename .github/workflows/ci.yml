@@ -59,7 +59,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 26.13.0
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -113,7 +113,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 26.13.0
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

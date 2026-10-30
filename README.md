@@ -35,7 +35,7 @@ workflow の `environment: production-db` だけでは承認待ちは保証さ�
 
 ## セットアップ
 
-Node.js 24 と `package.json` 固定の pnpm を使う。
+Node.js 26 と `package.json` 固定の pnpm を使う。
 
 ```bash
 cp .env.example .env.local
