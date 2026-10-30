@@ -708,6 +708,20 @@
       "when": 1792810598056,
       "tag": "0100_achievement-radar-curve-contract",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1793382902907,
+      "tag": "0101_normalize-analysis-campaign-targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1793382922869,
+      "tag": "0102_remove-unused-analysis-state",
+      "breakpoints": true
     }
   ]
 }

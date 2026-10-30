@@ -177,7 +177,7 @@ export const seriesAnalysisCampaignTargets = pgTable(
     ),
     check(
       "series_analysis_campaign_targets_status_check",
-      sql`${table.status} IN ('pending','expanded','running','succeeded','failed','skipped_title_deleted')`
+      sql`${table.status} IN ('pending','expanded','succeeded','failed','skipped_title_deleted')`
     ),
     index("series_analysis_campaign_targets_pending_idx")
       .on(table.acceptedAt, table.campaignId, table.gameTitleId)

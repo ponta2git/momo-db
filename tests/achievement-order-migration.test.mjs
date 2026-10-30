@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createTestClient } from './notification-fixtures.mjs';
 import { docker, snapshotDatabase, username } from './migration-fixtures.mjs';
+import { migrateThrough } from './migration-prefix.mjs';
 
 async function isolated(run) {
   const name = 'momo_db_test_achievement_order_' + randomUUID().replaceAll('-', '').slice(0, 10);
@@ -16,16 +14,9 @@ async function isolated(run) {
   try { await run(db, name); }
   finally { await db.end(); docker(['dropdb', '-U', username, name]); }
 }
-async function previous(db) {
-  const folder = mkdtempSync(join(tmpdir(), 'achievement-order-prefix-'));
-  try {
-    cpSync('./drizzle', folder, { recursive: true });
-    const journal = JSON.parse(readFileSync(join(folder, 'meta/_journal.json'), 'utf8'));
-    journal.entries = journal.entries.filter(entry => entry.idx <= 97);
-    writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify(journal));
-    await migrate(drizzle(db), { migrationsFolder: folder });
-  } finally { rmSync(folder, { recursive: true, force: true }); }
-}
+// Preserve this historical transition's contract; later state cleanup has its own restore test.
+const previous = db => migrateThrough(db, 97);
+const achievementTail = db => migrateThrough(db, 100);
 
 test('achievement order and lifetime tail preserves restored evidence and schedules only changed titles', async () => {
   await isolated(async db => { await migrate(drizzle(db), { migrationsFolder: './drizzle' }); });
@@ -53,7 +44,7 @@ test('achievement order and lifetime tail preserves restored evidence and schedu
     await isolated(async (copy, restored) => {
       docker(['pg_restore','-U',username,'--exit-on-error','--no-owner','--no-acl','-d',restored], dump);
       assert.deepEqual(await snapshotDatabase(copy), before);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      await achievementTail(copy);
       const after = await snapshotDatabase(copy);
       const changedTables = new Set(['achievement_items','series_analysis_title_states','series_analysis_job_requests']);
       for (const [table, rows] of Object.entries(before.rows)) {
@@ -79,7 +70,7 @@ test('achievement order and lifetime tail preserves restored evidence and schedu
       await copy`UPDATE series_analysis_title_states SET algorithm_version='series-analysis-v9',artifact_schema_version=8,validation_contract_id='series-analysis-artifact-v8-full-validation-v1' WHERE game_title_id=${otherTitle}`;
       assert.deepEqual(after.history.slice(0,before.history.length), before.history);
       const final = await snapshotDatabase(copy);
-      await migrate(drizzle(copy), { migrationsFolder: './drizzle' });
+      await achievementTail(copy);
       assert.deepEqual(await snapshotDatabase(copy), final);
     });
   });
