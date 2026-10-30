@@ -100,6 +100,8 @@ pnpm db:migrate
 3. DB と全 consumer の対応 commit、migration の依存順、旧版への復旧手順を事前に確定する。
 4. 保全対象の比較と consumer の動作確認が終わるまで新規書込み・配送を再開しない。
 
+`0101` / `0102` の分析状態整理は、旧 consumer と互換でない contract migration である。この tail を含む PR の master merge と migration 適用承認は、上記の停止切替条件に加え、全 consumer の停止、復元確認済み backup、対応する DB / API / Worker の版を確定した同じ承認済み停止期間内に限る。旧版と新版を混在させず、再開前に戻す場合は DB と対応 consumer を組として復元する。この一時的な切替条件は、切替完了後に撤去する。
+
 停止切替でも既存 migration の不変性、schema / custom SQL の分離、必須 gate、本番 approval / preflight は維持する。再開前に戻す場合は DB と consumer を整合する組合せへ復元し、再開後は新規データを守る forward fix を原則とする。
 
 master push では CI が build と `drizzle-kit check`、通知契約と既存 DB 保全のテストを行う。push 前後で `drizzle/` に変更がある場合は protected environment `production-db` で対象 commit の承認を待ち、承認後に `CI Actions` の実行 job が接続 preflight、正規 migration、全 migration 履歴の確認を直列実行する。`drizzle/` の変更がない push は本番承認・適用 job を起動しない。通常運用で承認や preflight を迂回しない。

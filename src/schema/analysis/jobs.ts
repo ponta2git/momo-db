@@ -161,7 +161,6 @@ export const seriesAnalysisJobRequests = pgTable(
     artifactSchemaVersion: integer("artifact_schema_version").notNull(),
     validationContractId: text("validation_contract_id"),
     trigger: text("trigger").notNull(),
-    forceRun: boolean("force_run").notNull().default(false),
     status: text("status").notNull().default("pending"),
     assignedJobId: uuid("assigned_job_id").references(() => seriesAnalysisJobs.id, {
       onDelete: "set null"

@@ -76,9 +76,6 @@ export const seriesAnalysisTitleStates = pgTable(
       .default(1),
     validationContractId: text("validation_contract_id"),
     pendingWork: boolean("pending_work").notNull().default(false),
-    pendingForcedRunCount: integer("pending_forced_run_count")
-      .notNull()
-      .default(0),
     lastFailureCode: text("last_failure_code"),
     lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
     currentArtifactId: uuid("current_artifact_id"),
@@ -111,10 +108,6 @@ export const seriesAnalysisTitleStates = pgTable(
       "series_analysis_title_states_validation_schema_check",
       table.artifactSchemaVersion,
       table.validationContractId
-    ),
-    check(
-      "series_analysis_title_states_pending_forced_run_count_check",
-      sql`${table.pendingForcedRunCount} >= 0`
     ),
     check(
       "series_analysis_title_states_failure_pair_check",
