@@ -141,15 +141,21 @@ test('fresh history applies the cleanup and removes the public fields', async ()
   }
 }));
 
-test('a concurrent campaign writer rejects the tail before changing data or history', async () => isolated(async db => {
-  await representative(db);
-  const before = await snapshot(db);
-  await db.begin(async sql => {
-    await sql`LOCK TABLE series_analysis_campaign_targets IN ROW EXCLUSIVE MODE`;
-    await assert.rejects(fullHistory(db), error => (error.code ?? error.cause?.code) === '55P03');
-  });
-  assert.deepEqual(await snapshot(db), before);
-}));
+for (const table of ['series_analysis_title_states', 'series_analysis_job_requests', 'series_analysis_campaign_targets']) {
+  test(`a concurrent ${table} writer rejects the tail before changing data, schema or history`, async () => isolated(async db => {
+    await representative(db);
+    const before = await snapshot(db);
+    await db.begin(async sql => {
+      await sql`LOCK TABLE ${sql(table)} IN ROW EXCLUSIVE MODE`;
+      await assert.rejects(fullHistory(db), error => {
+        const failure = error.cause ?? error;
+        // Distinguish NOWAIT from waiting until the connection's lock timeout.
+        return failure.code === '55P03' && failure.message.includes('could not obtain lock on relation');
+      });
+    });
+    assert.deepEqual(await snapshot(db), before);
+  }));
+}
 
 test('an unknown column dependency rejects the contract and rolls back running normalization', async () => isolated(async db => {
   await representative(db);
