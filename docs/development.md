@@ -14,7 +14,7 @@
 
 ## 2. 変更前に確認すること
 
-1. Node.js 24 と repository 固定の pnpm を使い、依存を lockfile どおりに導入する。
+1. Node.js 26 と repository 固定の pnpm を使い、依存を lockfile どおりに導入する。
 2. 作業 tree と最新 migration、対象 DB の `drizzle.__drizzle_migrations` を確認する。
 3. 対象 migration が、保存対象の local DB、共有 DB、本番 DB のいずれかへ適用済みでないかを確認する。
 4. summit と momo-result のどの version が変更前後の schema を読むかを確認し、必要なら expand → consumer deploy → contract に分割する。
