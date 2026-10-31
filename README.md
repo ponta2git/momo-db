@@ -6,17 +6,19 @@ Discord Bot プロジェクト群（summit / momo-result）が共有する Postg
 
 ## CI / CD
 
-すべての PR と master push 時に GitHub Actions が自動実行される。
+すべての PR と master push 時に GitHub Actions が自動実行される。`CI` workflow は手動起動にも対応する。
 
 | ジョブ | 条件 | 内容 |
 |---|---|---|
-| `Build & Check` | PR と master push | build、migration 整合性、fresh DB の通知契約、既存 DB の backup / restore・移行検証 |
-| `Approve production migration` | master push で `drizzle/` に変更があり、検証が成功した場合 | protected environment `production-db` で対象 commit の承認を待つ |
-| `Migrate Neon` | master push の本番 migration 承認成功後 | 接続 preflight + `drizzle-kit migrate` + 全 migration 履歴の確認（Neon 本番 DB に適用） |
+| `Build & Check` | PR、master push、手動起動 | build、migration 整合性、fresh DB の通知契約、既存 DB の backup / restore・移行検証 |
+| `Approve production migration` | master push で `drizzle/` に変更がある場合、または master の手動起動で、検証が成功した場合 | protected environment `production-db` で対象 commit の承認を待つ |
+| `Migrate Neon` | master の本番 migration 承認成功後 | 接続 preflight + `drizzle-kit migrate` + 全 migration 履歴の確認（Neon 本番 DB に適用） |
 
 `Build & Check` は workflow の PostgreSQL サービスと専用テスト DB を使い、本番 Environment や Secret を必要としない。PR では本番承認・適用ジョブを実行しない。
 
 master push の前後で `drizzle/` の差分がなければ、本番承認・適用ジョブは起動しない。検証用 DB への migration は `Build & Check` 内で毎回実行する。
+
+CI 設定だけの修正後に未適用 migration を再試行する場合は、修正を master に反映してから Actions の `CI` → `Run workflow` で master を選ぶ。手動起動でも同じ検証・本番承認・preflight・履歴検査を通り、master 以外では本番承認・適用ジョブを実行しない。古い run の再実行は元の commit を使うため、修正後の workflow の起動には使わない。
 
 ### GitHub Environment の設定
 
