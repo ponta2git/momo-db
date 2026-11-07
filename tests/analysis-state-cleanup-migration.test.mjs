@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { inspectSchema } from '../scripts/migration/inventory.mjs';
 import { schemaStructure } from '../scripts/migration/schema.mjs';
 import { createTestClient } from './notification-fixtures.mjs';
@@ -10,7 +8,8 @@ import { docker, username } from './migration-fixtures.mjs';
 import { migrateThrough } from './migration-prefix.mjs';
 import { seedCanonicalSource, legacy } from './canonical-identity-fixtures.mjs';
 
-const fullHistory = db => migrate(drizzle(db), { migrationsFolder: './drizzle' });
+// Keep this historical transition isolated from later attendance cutover guards.
+const fullHistory = db => migrateThrough(db, 102);
 const targetCheck = 'series_analysis_campaign_targets_status_check';
 const removedCheck = 'series_analysis_title_states_pending_forced_run_count_check';
 const removedColumns = {

@@ -14,13 +14,15 @@ export type { LoginAccountRole } from "./schema/identity.js";
 
 export {
   SESSION_STATUSES,
+  SESSION_SOURCES,
   RESPONSE_CHOICES,
   sessions,
+  weeklyAskSchedules,
   responses,
   heldEvents,
   heldEventParticipants
 } from "./schema/attendance.js";
-export type { SessionStatus, ResponseChoice } from "./schema/attendance.js";
+export type { SessionStatus, SessionSource, ResponseChoice } from "./schema/attendance.js";
 
 export {
   gameTitles,

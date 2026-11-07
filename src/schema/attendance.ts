@@ -2,6 +2,8 @@ import {
   uuid,
   unique,
   bigint,
+  boolean,
+  type AnyPgColumn,
   check,
   date,
   index,
@@ -28,6 +30,10 @@ export const SESSION_STATUSES = [
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
+// Historical rows have no trustworthy creation-origin evidence.
+export const SESSION_SOURCES = ["manual", "weekly_auto", "postponed", "legacy"] as const;
+export type SessionSource = (typeof SESSION_SOURCES)[number];
+
 export const RESPONSE_CHOICES = [
   "T2200",
   "T2230",
@@ -46,6 +52,13 @@ export const sessions = pgTable(
     legacyId: text("legacy_id").notNull().unique(),
     id: uuid("id").primaryKey(),
     weekKey: text("week_key").notNull(),
+    source: text("source").notNull().default("legacy"),
+    parentSessionId: uuid("parent_session_id")
+      .unique()
+      .references((): AnyPgColumn => sessions.id, { onDelete: "restrict" }),
+    requestId: text("request_id").unique(),
+    // False only for positively identified historical week-skip sentinels.
+    occupiesDate: boolean("occupies_date").notNull().default(true),
     postponeCount: integer("postpone_count").notNull().default(0),
     // why: `Iso` suffix で文字列日付型を名前から識別可能にする。 @see ADR-0014
     candidateDateIso: date("candidate_date_iso", { mode: "string" }).notNull(),
@@ -68,12 +81,13 @@ export const sessions = pgTable(
       .defaultNow()
   },
   (table) => [
-    // unique: 金 Session (postponeCount=0) と土 Session (postponeCount=1) が週キーを共有するため
-    //   複合で 0..1 件に制約。race 時は制約違反 → 呼び出し側が findSessionByWeekKeyAndPostponeCount で再取得。
-    uniqueIndex("sessions_week_key_postpone_count_unique").on(
-      table.weekKey,
-      table.postponeCount
-    ),
+    // A week labels independent events; it is no longer a creation identity.
+    uniqueIndex("sessions_candidate_date_unique").on(table.candidateDateIso)
+      .where(sql`${table.occupiesDate}`),
+    uniqueIndex("sessions_active_unique").on(sql`(true)`)
+      .where(sql`${table.status} IN ('ASKING','POSTPONE_VOTING','DECIDED','CANCELLED')`),
+    uniqueIndex("sessions_weekly_auto_unique").on(table.weekKey)
+      .where(sql`${table.source} = 'weekly_auto'`),
     // invariant: status を SESSION_STATUSES と DB CHECK で二重ガードし drizzle 型との乖離を防ぐ。
     check(
       "sessions_status_check",
@@ -85,6 +99,13 @@ export const sessions = pgTable(
       sql`${table.postponeCount} IN (0, 1)`
     ),
     check("sessions_revision_check", sql`${table.revision} >= 0`),
+    check("sessions_source_check", sql`${table.source} IN ('manual','weekly_auto','postponed','legacy')`),
+    check("sessions_origin_check", sql`${table.source} = 'legacy' OR
+      (${table.source} IN ('manual','weekly_auto') AND ${table.postponeCount} = 0 AND ${table.parentSessionId} IS NULL) OR
+      (${table.source} = 'postponed' AND ${table.postponeCount} = 1 AND ${table.parentSessionId} IS NOT NULL)`),
+    check("sessions_date_occupancy_check", sql`${table.occupiesDate} OR (${table.source} = 'legacy' AND ${table.status} = 'SKIPPED')`),
+    check("sessions_parent_not_self_check", sql`${table.parentSessionId} IS NULL OR ${table.parentSessionId} <> ${table.id}`),
+    index("sessions_week_key_idx").on(table.weekKey),
     // why: findDueAskingSessions / findDuePostponeVotingSessions の `WHERE status IN (...) AND deadline_at <= now`
     //   を prefix/range scan で支援するため status を leading column に置いた composite index。
     index("idx_sessions_status_deadline").on(table.status, table.deadlineAt),
@@ -95,6 +116,24 @@ export const sessions = pgTable(
       table.status,
       table.reminderAt
     )
+  ]
+);
+
+// A stopped weekly automation does not reserve a candidate date or create a Session.
+export const weeklyAskSchedules = pgTable(
+  "weekly_ask_schedules",
+  {
+    weekKey: text("week_key").primaryKey(),
+    autoSessionId: uuid("auto_session_id").unique().references(() => sessions.id, { onDelete: "restrict" }),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    // Historical cancellation notices may already have had their payload purged.
+    disabledBy: text("disabled_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("weekly_ask_schedules_outcome_check", sql`${table.autoSessionId} IS NULL OR ${table.disabledAt} IS NULL`),
+    check("weekly_ask_schedules_actor_check", sql`${table.disabledBy} IS NULL OR ${table.disabledAt} IS NOT NULL`)
   ]
 );
 

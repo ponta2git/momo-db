@@ -722,6 +722,34 @@
       "when": 1793382922869,
       "tag": "0102_remove-unused-analysis-state",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794014748357,
+      "tag": "0103_guard-attendance-multiple-sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794015596640,
+      "tag": "0104_expand-attendance-multiple-sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794015606194,
+      "tag": "0105_preserve-attendance-history",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1794015617911,
+      "tag": "0106_constrain-attendance-multiple-sessions",
+      "breakpoints": true
     }
   ]
 }
