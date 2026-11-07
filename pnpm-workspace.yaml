@@ -1,2 +1,6 @@
 allowBuilds:
   esbuild: true
+
+overrides:
+  # GHSA-67mh-4wv8-2f99: remove when drizzle-kit no longer requires the vulnerable loader.
+  "@esbuild-kit/core-utils>esbuild": "0.25.12"
