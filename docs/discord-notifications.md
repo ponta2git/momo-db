@@ -11,7 +11,8 @@
 | `ocr_submissions` | 読み取り操作の所有者・下書き参照・ヒント・受付期限・終端状態 |
 | `ocr_submission_members` | 固定画像集合の種別・upload key hash・内容識別・登録 job または受付失敗 |
 | `discord_notifications` | 親、固定 payload、内容 hash、配送状態、初回描画の renderer / 部分数 / delivery_context |
-| `discord_notification_attendance` | 出欠アンケートの Session と revision / ordinal |
+| `discord_notification_attendance` | 出欠 Session または週次自動募集設定への関連と revision / ordinal |
+| `weekly_ask_schedules` | 週ごとの自動募集の生成・停止状態。候補日の枠は消費しない |
 | `discord_notification_results` | A/B の種別・元ジョブ・成功時刻・設定世代。元ジョブ一意性を永久保持 |
 | `discord_notification_settings` | A/B ごとに一行。初期 ON、世代 0 |
 | `discord_notification_targets` | A の下書き、B に掲載する全試合。元データへの FK を持たない |
@@ -145,6 +146,10 @@ PENDING → IN_FLIGHT → DELIVERED / PENDING / FAILED。取消済み A/B は再
 
 Session の command は `enqueueOutboxInTransaction` で attendance intent を保存する。部分数は 1、既存 typed renderer が最新 Session を読む。Session ごとの revision / ordinal の順序を守り、先行 FAILED の後続を取り消す。
 
+週次自動募集の停止通知は同じ attendance family を使い、`discord_notification_attendance.week_key` から `weekly_ask_schedules` を参照する。Session と週の両方を同時に参照しない。週ごとの revision / ordinal と永久 dedupe を保ち、Session の停止・再描画・reminder 完了処理を適用しない。旧 Session 削除後の両参照 NULL は履歴として保持し、新規の配送対象にはしない。停止状態と通知 intent は一 transaction で保存する。
+
+Session の `week_key` は候補日の所属週であり、一意な開催識別子ではない。`source` は `manual` / `weekly_auto` / `postponed`、移行した履歴は作成経路を推測せず `legacy`。候補日は `occupies_date=true` の行で一意、進行中の4状態（ASKING / POSTPONE_VOTING / DECIDED / CANCELLED）は全体で最大1件。順延は親Sessionの終端化と子の作成を同じ transaction に含める。週次自動募集は週ごとに最大1件で、停止済みとの相互排他を受付commandが守る。
+
 起動時は保持中の attendance FAILED と、それが原因の CANCELLED 後続だけを復帰させる。手動週取消・A/B は対象外。リマインド後の Session 完了・開催・参加者作成、message ID の CAS-on-NULL は維持する。
 
 Summit は終端から DELIVERED 7 日、FAILED / CANCELLED 30 日を過ぎた payload・parts・targets・delivery_context・最終エラーを整理する。追加 cutoff は保持を延ばす方向だけ。PENDING、IN_FLIGHT、claim / 送信中部分は整理しない。親の ID・dedupe・kind・version・hash・終端状態と A/B の元ジョブ一意性は永久保持する。本文整理後の閲覧・再送はできない。
@@ -160,6 +165,8 @@ Summit は終端から DELIVERED 7 日、FAILED / CANCELLED 30 日を過ぎた p
 0056 は送出と固定 member の2表・宣言的な制約/index のみを追加する。既存 OCR job、通知 payload/hash/履歴は書き換えない。
 メンテナンスでは旧受付を閉じて OCR と旧未配送通知を排出し、排出未完了なら切替を中止する。全 writer / cleanup / dispatch を停止して復元確認済み baseline を確保し、DB・API/Web・Worker・Summit を一括切替する。
 再開後の新規業務書込みまたは外部送信より前なら対応 baseline 全体へ復旧できる。それ以降は新規データを保護した forward fix とし、旧 binary だけに戻さない。
+
+0103–0106 は週単位の生成制限を候補日・進行中状態の制約へ置き換える。旧進行中 Session、PENDING / IN_FLIGHT / FAILED の attendance 通知、判別不能な SKIPPED、実募集の日付重複は移行前に拒否する。既存行の ID・週キー・状態・日時・関連・通知は保持し、作成経路は `legacy` として残す。証拠の揃った旧停止用 sentinel だけを日付占有から外し、旧 SKIPPED の週停止を独立した設定へ移す。旧手動・自動を曜日だけで分類せず、通知本文の整理済みで actor が不明なら NULL を保存する。`attendance-multiple-sessions-migration.test.mjs` が復元 copy の保持、各拒否条件、並行制約、旧通知関連と新しい週通知を検証する。
 
 ### 専用 DB での検証
 

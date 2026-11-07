@@ -15,7 +15,7 @@ import {
   uuid
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { sessions } from "./attendance.js";
+import { sessions, weeklyAskSchedules } from "./attendance.js";
 
 // source-of-truth: Discord 送信の at-least-once 配送キュー。状態遷移 tx で enqueue し、
 //   worker が非同期配送。crash 中でも DB 正本のまま再試行される。 @see summit ADR-0051
@@ -94,12 +94,17 @@ export const discordNotificationAttendance = pgTable(
     notificationId: text("notification_id").primaryKey(),
     // why: 完了済み Session を整理した後も dedupe の親行は残す。
     sessionId: text("session_id").references(() => sessions.legacyId, { onDelete: "set null" }),
+    weekKey: text("week_key"),
     aggregateRevision: bigint("aggregate_revision", { mode: "number" }).notNull(),
     ordinal: smallint("ordinal").notNull()
   },
   (table) => [
     foreignKey({ name: "discord_attendance_notification_fk", columns: [table.notificationId], foreignColumns: [discordNotifications.id] }).onDelete("cascade"),
     uniqueIndex("discord_notification_attendance_order_unique").on(table.sessionId, table.aggregateRevision, table.ordinal),
+    uniqueIndex("discord_attendance_week_order_unique").on(table.weekKey, table.aggregateRevision, table.ordinal),
+    foreignKey({ name: "discord_attendance_week_fk", columns: [table.weekKey], foreignColumns: [weeklyAskSchedules.weekKey] }).onDelete("restrict"),
+    // Both NULL remains valid for retained notifications whose old Session was deleted.
+    check("discord_attendance_owner_check", sql`${table.sessionId} IS NULL OR ${table.weekKey} IS NULL`),
     check("discord_notification_attendance_order_check", sql`${table.aggregateRevision} >= 0 AND ${table.ordinal} >= 0`)
   ]
 );
