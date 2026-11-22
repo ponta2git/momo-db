@@ -92,7 +92,8 @@ test('attendance tail preserves restored IDs, precise values, history and refere
     const after = await snapshot(copy, true);
     assert.deepEqual(after.rows, before.rows, 'old columns and every unrelated row remain byte-for-byte equivalent');
     assert.deepEqual(after.history.slice(0, before.history.length), before.history);
-    assert.equal(after.history.length, before.history.length + 4);
+    const journal = JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8'));
+    assert.deepEqual(after.history.map(row => Number(row.created_at)), journal.entries.map(entry => entry.when));
     const rows = await copy`SELECT legacy_id,source,parent_session_id,request_id,occupies_date FROM sessions ORDER BY legacy_id`;
     for (const row of rows) {
       assert.equal(row.source, 'legacy');
